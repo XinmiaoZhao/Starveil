@@ -7,7 +7,7 @@ from PIL import Image
 import tifffile
 
 
-SUPPORTED_EXTENSIONS = {
+RASTER_EXTENSIONS = {
     ".jpg",
     ".jpeg",
     ".png",
@@ -15,6 +15,39 @@ SUPPORTED_EXTENSIONS = {
     ".tiff",
     ".bmp",
 }
+
+RAW_EXTENSIONS = {
+    ".3fr",
+    ".arw",
+    ".bay",
+    ".cr2",
+    ".cr3",
+    ".crw",
+    ".dcr",
+    ".dng",
+    ".erf",
+    ".fff",
+    ".iiq",
+    ".kdc",
+    ".mef",
+    ".mos",
+    ".mrw",
+    ".nef",
+    ".nrw",
+    ".orf",
+    ".pef",
+    ".raf",
+    ".raw",
+    ".rw2",
+    ".rwl",
+    ".sr2",
+    ".srf",
+    ".srw",
+    ".x3f",
+}
+
+SUPPORTED_EXTENSIONS = RASTER_EXTENSIONS | RAW_EXTENSIONS
+OUTPUT_EXTENSIONS = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
 
 
 def assert_supported(path: Path) -> None:
@@ -26,7 +59,11 @@ def assert_supported(path: Path) -> None:
 def load_image(path: Path) -> np.ndarray:
     """Load an image as RGB float32 in the 0..1 range."""
     assert_supported(path)
-    if path.suffix.lower() in {".tif", ".tiff"}:
+    ext = path.suffix.lower()
+    if ext in RAW_EXTENSIONS:
+        return _load_raw(path)
+
+    if ext in {".tif", ".tiff"}:
         arr = tifffile.imread(path)
         return _array_to_rgb_float(arr)
 
@@ -70,7 +107,25 @@ def save_image(image: np.ndarray, path: Path) -> None:
         Image.fromarray(arr8, mode="RGB").save(path)
         return
 
-    raise ValueError("Output must end with .tif, .tiff, .jpg, .jpeg, or .png")
+    supported = ", ".join(sorted(OUTPUT_EXTENSIONS))
+    raise ValueError(f"Output must end with one of: {supported}")
+
+
+def _load_raw(path: Path) -> np.ndarray:
+    try:
+        import rawpy
+    except ImportError as exc:
+        raise ImportError("RAW support requires rawpy. Install it with conda-forge rawpy.") from exc
+
+    with rawpy.imread(str(path)) as raw:
+        rgb = raw.postprocess(
+            use_camera_wb=True,
+            no_auto_bright=True,
+            output_bps=16,
+            gamma=(1, 1),
+            user_flip=0,
+        )
+    return _array_to_rgb_float(rgb)
 
 
 def _array_to_rgb_float(arr: np.ndarray) -> np.ndarray:

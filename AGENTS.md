@@ -20,7 +20,10 @@ repository. Keep user instructions in `README.md` and project status in
 - Keep `environment.yml` as the source of truth for runtime and test
   dependencies.
 - RAW support should be added as an optional conda-forge dependency, likely
-  `rawpy`, and isolated behind an image I/O interface.
+- RAW support uses conda-forge `rawpy` and should stay isolated behind the image
+  I/O interface.
+- XISF support is intentionally deferred. Prefer robust TIFF workflows unless a
+  full testable XISF reader is added.
 
 ## Engineering Priorities
 

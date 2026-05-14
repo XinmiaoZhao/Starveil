@@ -24,8 +24,7 @@ class MySequatorApp(tk.Tk):
         self.flat_paths: list[Path] = []
         self.output_path = tk.StringVar(value=str(Path.cwd() / "stacked.tiff"))
         self.mode = tk.StringVar(value="sigma")
-        self.auto_brightness = tk.BooleanVar(value=True)
-        self.hdr = tk.BooleanVar(value=False)
+        self.output_stretch = tk.StringVar(value="none")
         self.reduce_lp = tk.BooleanVar(value=False)
         self.enhance_stars = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value="Add star images to begin.")
@@ -82,8 +81,14 @@ class MySequatorApp(tk.Tk):
         ttk.Combobox(options, textvariable=self.mode, values=("sigma", "mean", "trails"), state="readonly", width=10).grid(
             row=0, column=1, sticky="ew"
         )
-        ttk.Checkbutton(options, text="Auto brightness", variable=self.auto_brightness).grid(row=1, column=0, columnspan=2, sticky="w")
-        ttk.Checkbutton(options, text="HDR stretch", variable=self.hdr).grid(row=2, column=0, columnspan=2, sticky="w")
+        ttk.Label(options, text="Output stretch").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Combobox(
+            options,
+            textvariable=self.output_stretch,
+            values=("none", "auto", "hdr"),
+            state="readonly",
+            width=10,
+        ).grid(row=1, column=1, sticky="ew", pady=(6, 0))
         ttk.Checkbutton(options, text="Reduce light pollution", variable=self.reduce_lp).grid(
             row=3, column=0, columnspan=2, sticky="w"
         )
@@ -174,8 +179,7 @@ class MySequatorApp(tk.Tk):
             mode=self.mode.get(),
             dark_paths=self.dark_paths,
             flat_paths=self.flat_paths,
-            auto_brightness=self.auto_brightness.get(),
-            hdr=self.hdr.get(),
+            output_stretch=self.output_stretch.get(),
             reduce_light_pollution=self.reduce_lp.get(),
             enhance_stars=self.enhance_stars.get(),
         )

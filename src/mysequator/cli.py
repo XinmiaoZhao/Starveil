@@ -16,8 +16,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--flat", action="append", type=Path, default=[], help="Flat frame path; repeatable")
     parser.add_argument("--mode", choices=["mean", "sigma", "trails"], default="sigma")
     parser.add_argument("--sigma", type=float, default=2.2)
-    parser.add_argument("--no-auto-brightness", action="store_true")
-    parser.add_argument("--hdr", action="store_true")
+    parser.add_argument("--stretch", choices=["none", "auto", "hdr"], default="none", help="Output stretch mode")
+    parser.add_argument("--auto-brightness", action="store_true", help="Compatibility alias for --stretch auto")
+    parser.add_argument("--no-auto-brightness", action="store_true", help="Compatibility alias for --stretch none")
+    parser.add_argument("--hdr", action="store_true", help="Compatibility alias for --stretch hdr")
     parser.add_argument("--reduce-light-pollution", action="store_true")
     parser.add_argument("--light-pollution-strength", type=float, default=0.45)
     parser.add_argument("--enhance-stars", action="store_true")
@@ -27,13 +29,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    output_stretch = args.stretch
+    if args.auto_brightness:
+        output_stretch = "auto"
+    if args.hdr:
+        output_stretch = "hdr"
+    if args.no_auto_brightness:
+        output_stretch = "none"
+
     options = StackOptions(
         mode=args.mode,
         base_path=args.base,
         dark_paths=args.dark,
         flat_paths=args.flat,
-        auto_brightness=not args.no_auto_brightness,
-        hdr=args.hdr,
+        output_stretch=output_stretch,
         reduce_light_pollution=args.reduce_light_pollution,
         light_pollution_strength=args.light_pollution_strength,
         enhance_stars=args.enhance_stars,

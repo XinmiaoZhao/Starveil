@@ -10,12 +10,14 @@ The first milestone focuses on the core macOS workflow:
 - optional dark-frame subtraction and flat-frame correction
 - estimate star-field translation with phase correlation
 - stack aligned frames with mean, sigma-clipped mean, or star-trail max mode
+- read RAW camera files through LibRaw/rawpy, plus TIFF/JPEG/PNG/BMP
 - export 16-bit TIFF or 8-bit JPEG/PNG
+- keep output linear by default, with optional auto or HDR stretch
 - run from a Tkinter desktop GUI or a command-line interface
 
 Advanced Sequator-style features such as freeze-ground compositing, irregular
-sky masks, RAW camera decoding, wide-angle distortion correction, and batch
-time-lapse output are tracked in `PROGRESS.md`.
+sky masks, XISF import, wide-angle distortion correction, and batch time-lapse
+output are tracked in `PROGRESS.md`.
 
 ## Setup with conda
 
@@ -50,7 +52,7 @@ created in `./.conda`.
 conda run -p ./.conda python run_cli.py \
   --output stacked.tiff \
   --mode sigma \
-  --auto-brightness \
+  --stretch none \
   image_001.tif image_002.tif image_003.tif image_004.tif
 ```
 
@@ -63,17 +65,24 @@ Useful options:
 - `--dark PATH`: add one or more dark frames
 - `--flat PATH`: add one or more flat frames
 - `--mode mean|sigma|trails`: choose the composition mode
-- `--hdr`: stretch the output dynamic range
+- `--stretch none|auto|hdr`: choose linear output or a display stretch
 - `--reduce-light-pollution`: subtract a broad low-frequency background
 - `--enhance-stars`: apply a mild star/detail boost
+
+RAW extensions supported through `rawpy` include common DSLR/mirrorless formats
+such as `.arw`, `.cr2`, `.cr3`, `.dng`, `.nef`, `.orf`, `.raf`, and `.rw2`.
+
+XISF is not a direct input format in this milestone. Use PixInsight to convert
+XISF files to 16-bit TIFF before stacking.
 
 ## Current limitations
 
 - Alignment is translational. It works best for short tripod sequences and
   moderate field of view images. Long sequences, very wide lenses, or strong
   field rotation need a future similarity/mesh warp module.
-- RAW formats are not decoded in this milestone. Convert RAW files to
-  16-bit TIFF first, or add `rawpy` later through conda-forge.
+- RAW loading uses LibRaw/rawpy with camera white balance, no automatic
+  brightening, 16-bit output, and linear gamma.
+- XISF files should be converted to 16-bit TIFF in PixInsight first.
 - Freeze-ground compositing is not implemented yet.
 
 ## Project docs

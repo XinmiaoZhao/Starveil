@@ -72,10 +72,18 @@ def stack_images(
         stacked = reduce_light_pollution(stacked, options.light_pollution_strength)
     if options.enhance_stars:
         stacked = enhance_stars(stacked, options.star_enhancement_strength)
+    stretch = options.output_stretch
     if options.hdr:
+        stretch = "hdr"
+    elif options.auto_brightness:
+        stretch = "auto"
+
+    if stretch == "hdr":
         stacked = apply_hdr_stretch(stacked)
-    if options.auto_brightness:
+    elif stretch == "auto":
         stacked = apply_auto_brightness(stacked)
+    elif stretch != "none":
+        raise ValueError(f"Unknown output stretch mode: {stretch}")
 
     _report(progress, "Done", 1.0)
     return StackResult(image=np.clip(stacked, 0.0, 1.0), base_path=base_path, alignments=alignments)

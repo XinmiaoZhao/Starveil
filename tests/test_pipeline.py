@@ -7,7 +7,7 @@ from PIL import Image
 
 from mysequator.engine import StackOptions, stack_images
 from mysequator.engine.alignment import translate_with_mask
-from mysequator.engine.io import load_image, save_image
+from mysequator.engine.io import RAW_EXTENSIONS, SUPPORTED_EXTENSIONS, load_image, save_image
 
 
 def _make_rgb_star_field() -> np.ndarray:
@@ -43,6 +43,34 @@ def test_stack_images_aligns_and_averages(tmp_path: Path) -> None:
     assert float(result.image.max()) > 0.5
 
 
+def test_default_output_is_not_stretched(tmp_path: Path) -> None:
+    image = np.full((32, 32, 3), 0.08, dtype=np.float32)
+    image[12:15, 12:15] = 0.25
+    paths = []
+    for index in range(2):
+        path = tmp_path / f"linear_{index}.png"
+        _save(path, image)
+        paths.append(path)
+
+    result = stack_images(paths, options=StackOptions(mode="mean"))
+
+    assert float(result.image.max()) < 0.28
+
+
+def test_auto_stretch_is_optional(tmp_path: Path) -> None:
+    image = np.full((32, 32, 3), 0.08, dtype=np.float32)
+    image[12:15, 12:15] = 0.25
+    paths = []
+    for index in range(2):
+        path = tmp_path / f"auto_{index}.png"
+        _save(path, image)
+        paths.append(path)
+
+    result = stack_images(paths, options=StackOptions(mode="mean", output_stretch="auto"))
+
+    assert float(result.image.max()) > 0.85
+
+
 def test_tiff_roundtrip_preserves_16_bit_rgb(tmp_path: Path) -> None:
     image = np.zeros((12, 10, 3), dtype=np.float32)
     image[:, :, 0] = 0.25
@@ -55,3 +83,9 @@ def test_tiff_roundtrip_preserves_16_bit_rgb(tmp_path: Path) -> None:
 
     assert loaded.shape == image.shape
     assert np.allclose(loaded[0, 0], [0.25, 0.5, 0.75], atol=1 / 65535)
+
+
+def test_raw_extensions_are_advertised_but_xisf_is_deferred() -> None:
+    assert ".dng" in RAW_EXTENSIONS
+    assert ".cr3" in SUPPORTED_EXTENSIONS
+    assert ".xisf" not in SUPPORTED_EXTENSIONS

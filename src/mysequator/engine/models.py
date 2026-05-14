@@ -6,6 +6,7 @@ from typing import Callable, Literal
 
 
 CompositionMode = Literal["mean", "sigma", "trails"]
+OutputStretch = Literal["none", "auto", "hdr"]
 ProgressCallback = Callable[[str, float], None]
 
 
@@ -15,7 +16,8 @@ class StackOptions:
     base_path: Path | None = None
     dark_paths: list[Path] = field(default_factory=list)
     flat_paths: list[Path] = field(default_factory=list)
-    auto_brightness: bool = True
+    output_stretch: OutputStretch = "none"
+    auto_brightness: bool = False
     hdr: bool = False
     reduce_light_pollution: bool = False
     light_pollution_strength: float = 0.45

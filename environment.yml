@@ -5,5 +5,6 @@ dependencies:
   - python=3.11
   - numpy>=1.26
   - pillow>=10
+  - rawpy>=0.27
   - tifffile>=2024
   - pytest>=8

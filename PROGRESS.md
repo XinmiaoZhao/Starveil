@@ -31,6 +31,7 @@ Sources:
 - Added command-line entry point.
 - Added macOS `.app` launcher wrapper that uses the local `./.conda` env.
 - Implemented image loading and saving for TIFF/JPEG/PNG/BMP.
+- Implemented RAW camera input through conda-forge `rawpy`/LibRaw.
 - Implemented dark-frame median subtraction.
 - Implemented flat-frame median correction.
 - Implemented phase-correlation translation alignment.
@@ -45,10 +46,13 @@ Sources:
 - Created the local conda environment at `./.conda`.
 - Added a root-level import bridge package so `python -m mysequator...` resolves
   the `src/` layout from the project root without pip registration.
+- Installed `rawpy` through conda for RAW camera input.
 - Installed `tifffile` through conda for 16-bit RGB TIFF support.
-- Ran `conda run -p ./.conda python -m pytest`: 4 tests passed.
+- Ran `conda run -p ./.conda python -m pytest`: 7 tests passed.
 - Ran `conda run -p ./.conda python -m mysequator --help` to verify
   the CLI entry point loads.
+- Ran `conda run -p ./.conda python -c "import rawpy; print(rawpy.__version__)"`
+  to verify RAW support is importable.
 - Ran a TIFF smoke test confirming RGB values round-trip through `save_image`
   and `load_image`.
 
@@ -58,7 +62,7 @@ Sources:
   lens distortion, projection distortion, or atmospheric-refraction effects.
 - Freeze-ground foreground/sky compositing is not implemented.
 - Sky mask drawing is not implemented.
-- RAW decoding is not implemented.
+- XISF import is not implemented; convert XISF to 16-bit TIFF in PixInsight.
 - Time-lapse batch output is not implemented.
 - Memory use is simple and may be high for many large 16-bit frames.
 
@@ -68,7 +72,8 @@ Sources:
    RANSAC.
 2. Add a sky-mask editor in the GUI and pass masks into star detection,
    light-pollution reduction, and future freeze-ground logic.
-3. Add optional RAW decoding with conda-forge `rawpy`.
+3. Add RAW-specific controls for white balance, highlight handling, and black
+   level behavior.
 4. Add chunked/streaming accumulation for lower memory use.
 5. Add freeze-ground compositing as a separate engine module.
 6. Add time-lapse batch mode.
