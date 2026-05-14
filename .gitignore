@@ -1,0 +1,14 @@
+.conda/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store
+dist/
+build/
+*.egg-info/
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+*.png
+!tests/fixtures/**/*.png
