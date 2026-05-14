@@ -43,9 +43,11 @@ Sources:
 ## Verification
 
 - Created the local conda environment at `./.conda`.
+- Added a root-level import bridge package so `python -m mysequator...` resolves
+  the `src/` layout from the project root without pip registration.
 - Installed `tifffile` through conda for 16-bit RGB TIFF support.
-- Ran `PYTHONPATH=src conda run -p ./.conda python -m pytest`: 4 tests passed.
-- Ran `PYTHONPATH=src conda run -p ./.conda python -m mysequator --help` to verify
+- Ran `conda run -p ./.conda python -m pytest`: 4 tests passed.
+- Ran `conda run -p ./.conda python -m mysequator --help` to verify
   the CLI entry point loads.
 - Ran a TIFF smoke test confirming RGB values round-trip through `save_image`
   and `load_image`.

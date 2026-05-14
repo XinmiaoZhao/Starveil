@@ -42,4 +42,3 @@ conda run -p ./.conda pytest
 
 - Add synthetic image tests for alignment and stacking changes.
 - For GUI changes, keep manual verification notes in `PROGRESS.md`.
-

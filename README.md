@@ -21,7 +21,6 @@ time-lapse output are tracked in `PROGRESS.md`.
 
 ```bash
 conda env create -p ./.conda -f environment.yml
-conda activate ./.conda
 ```
 
 If the environment already exists:
@@ -33,6 +32,12 @@ conda env update -p ./.conda -f environment.yml --prune
 ## Run the GUI
 
 ```bash
+conda run -p ./.conda python run_gui.py
+```
+
+This also works from the project root:
+
+```bash
 conda run -p ./.conda python -m mysequator.ui.app
 ```
 
@@ -42,12 +47,15 @@ created in `./.conda`.
 ## Run from CLI
 
 ```bash
-conda run -p ./.conda python -m mysequator \
+conda run -p ./.conda python run_cli.py \
   --output stacked.tiff \
   --mode sigma \
   --auto-brightness \
   image_001.tif image_002.tif image_003.tif image_004.tif
 ```
+
+From the project root, you can also use `python -m mysequator` in place of
+`python run_cli.py`.
 
 Useful options:
 
@@ -73,4 +81,3 @@ Useful options:
 - `README.md`: user-facing setup, run commands, and current usage limits.
 - `AGENTS.md`: development rules for future coding agents and contributors.
 - `PROGRESS.md`: implementation status, decisions made, and next milestones.
-
