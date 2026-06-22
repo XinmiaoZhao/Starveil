@@ -22,3 +22,9 @@ mysequator = "mysequator.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = [
+  "tests/test_alignment.py",
+  "tests/test_pipeline.py",
+]

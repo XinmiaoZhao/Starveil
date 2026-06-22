@@ -1,8 +1,10 @@
 .conda/
+.build/
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+test_pics/
 dist/
 build/
 *.egg-info/
