@@ -38,6 +38,42 @@ final class AlignmentTests: XCTestCase {
         XCTAssertEqual(rightColumns, 0)
         XCTAssertEqual(mask.filter { $0 != 0 }.count, 30)
     }
+
+    func testWideAngleAlignmentCanUsePolynomialWarp() throws {
+        let width = 160
+        let height = 120
+        var referencePoints: [(Int, Int)] = []
+        for y in stride(from: 18, through: 98, by: 16) {
+            for x in stride(from: 18, through: 142, by: 18) {
+                referencePoints.append((y, x))
+            }
+        }
+        let movingPoints = referencePoints.map { point -> (Int, Int) in
+            let normalizedX = Float(point.1 - width / 2) / Float(width)
+            let normalizedY = Float(point.0 - height / 2) / Float(width)
+            let dx = Int((normalizedX * normalizedX * 7 + normalizedY * 2).rounded())
+            let dy = Int((normalizedX * normalizedY * 6).rounded())
+            return (point.0 + dy, point.1 + dx)
+        }
+        let reference = stars(width: width, height: height, points: referencePoints)
+        let moving = stars(width: width, height: height, points: movingPoints)
+
+        let transform = try estimateImageTransform(
+            reference: reference,
+            moving: moving,
+            width: width,
+            height: height,
+            maxDimension: width,
+            alignmentModel: .wideAngle
+        )
+
+        XCTAssertTrue(transform.usesPolynomialWarp)
+        for (referencePoint, movingPoint) in zip(referencePoints.prefix(8), movingPoints.prefix(8)) {
+            let source = try XCTUnwrap(transform.sourcePoint(forDestinationX: Float(referencePoint.1), y: Float(referencePoint.0)))
+            XCTAssertEqual(source.x, Float(movingPoint.1), accuracy: 1.1)
+            XCTAssertEqual(source.y, Float(movingPoint.0), accuracy: 1.1)
+        }
+    }
 }
 
 func stars(width: Int, height: Int, points: [(Int, Int)]) -> [Float] {

@@ -12,6 +12,11 @@ public enum SceneCompositionMode: String, CaseIterable, Sendable {
     case skyAndGround
 }
 
+public enum AlignmentModel: String, CaseIterable, Sendable {
+    case conservative
+    case wideAngle
+}
+
 public enum OutputStretch: String, CaseIterable, Sendable {
     case none
     case auto
@@ -21,6 +26,51 @@ public enum OutputStretch: String, CaseIterable, Sendable {
 public enum TIFFDepth: String, CaseIterable, Sendable {
     case uint16
     case float32
+}
+
+public enum RawWhiteBalanceMode: String, CaseIterable, Sendable {
+    case camera
+    case auto
+    case none
+}
+
+public enum RawHighlightMode: String, CaseIterable, Sendable {
+    case clip
+    case unclip
+    case blend
+    case rebuild
+
+    var libRawValue: Int32 {
+        switch self {
+        case .clip:
+            return 0
+        case .unclip:
+            return 1
+        case .blend:
+            return 2
+        case .rebuild:
+            return 3
+        }
+    }
+}
+
+public struct RawProcessingOptions: Sendable, Equatable {
+    public var whiteBalanceMode: RawWhiteBalanceMode
+    public var noAutoBrightness: Bool
+    public var highlightMode: RawHighlightMode
+    public var userBlackLevel: Int?
+
+    public init(
+        whiteBalanceMode: RawWhiteBalanceMode = .camera,
+        noAutoBrightness: Bool = true,
+        highlightMode: RawHighlightMode = .clip,
+        userBlackLevel: Int? = nil
+    ) {
+        self.whiteBalanceMode = whiteBalanceMode
+        self.noAutoBrightness = noAutoBrightness
+        self.highlightMode = highlightMode
+        self.userBlackLevel = userBlackLevel
+    }
 }
 
 public typealias ProgressCallback = @Sendable (_ message: String, _ fraction: Double) -> Void
@@ -40,6 +90,8 @@ public struct StackOptions: Sendable {
     public var starEnhancementStrength: Float
     public var sigma: Float
     public var alignmentMaxDimension: Int
+    public var alignmentModel: AlignmentModel
+    public var rawOptions: RawProcessingOptions
     public var linearMaster: Bool
 
     public init(
@@ -57,6 +109,8 @@ public struct StackOptions: Sendable {
         starEnhancementStrength: Float = 0.35,
         sigma: Float = 2.2,
         alignmentMaxDimension: Int = 1200,
+        alignmentModel: AlignmentModel = .conservative,
+        rawOptions: RawProcessingOptions = RawProcessingOptions(),
         linearMaster: Bool = false
     ) {
         self.mode = mode
@@ -73,6 +127,8 @@ public struct StackOptions: Sendable {
         self.starEnhancementStrength = starEnhancementStrength
         self.sigma = sigma
         self.alignmentMaxDimension = alignmentMaxDimension
+        self.alignmentModel = alignmentModel
+        self.rawOptions = rawOptions
         self.linearMaster = linearMaster
     }
 }

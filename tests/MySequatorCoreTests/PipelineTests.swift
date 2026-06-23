@@ -101,10 +101,82 @@ final class PipelineTests: XCTestCase {
         XCTAssertGreaterThan(loaded.data.max() ?? 0, 1)
     }
 
+    func testFITSOutputWritesFloatRGBCube() throws {
+        let temp = try temporaryDirectory()
+        var image = FloatRGBImage(width: 2, height: 1)
+        image[0, 0, 0] = 0.25
+        image[0, 0, 1] = 0.50
+        image[0, 0, 2] = 0.75
+        image[1, 0, 0] = 1.25
+        image[1, 0, 1] = 0.00
+        image[1, 0, 2] = 0.125
+        let path = temp.appendingPathComponent("linear-master.fits")
+
+        try saveImage(image, to: path, options: SaveOptions(tiffDepth: .float32, clip: false))
+
+        let data = try Data(contentsOf: path)
+        let header = String(data: data.prefix(2880), encoding: .ascii) ?? ""
+        XCTAssertTrue(header.contains("SIMPLE"))
+        XCTAssertTrue(header.contains("BITPIX  = -32"))
+        XCTAssertTrue(header.contains("NAXIS1  = 2"))
+        XCTAssertTrue(header.contains("NAXIS2  = 1"))
+        XCTAssertTrue(header.contains("NAXIS3  = 3"))
+        XCTAssertEqual(data.count % 2880, 0)
+        XCTAssertEqual(readBigEndianFloat(data, offset: 2880), 0.25, accuracy: 1e-6)
+        XCTAssertEqual(readBigEndianFloat(data, offset: 2884), 1.25, accuracy: 1e-6)
+        XCTAssertEqual(readBigEndianFloat(data, offset: 2888), 0.50, accuracy: 1e-6)
+    }
+
     func testRawExtensionsAreAdvertisedButXISFIsDeferred() {
         XCTAssertTrue(rawExtensions.contains("dng"))
         XCTAssertTrue(supportedExtensions.contains("cr3"))
         XCTAssertFalse(supportedExtensions.contains("xisf"))
+        XCTAssertTrue(outputExtensions.contains("fits"))
+    }
+
+    func testRawProcessingDefaultsPreserveLinearCameraDecode() {
+        let options = RawProcessingOptions()
+
+        XCTAssertEqual(options.whiteBalanceMode, .camera)
+        XCTAssertTrue(options.noAutoBrightness)
+        XCTAssertEqual(options.highlightMode, .clip)
+        XCTAssertNil(options.userBlackLevel)
+    }
+
+    func testWorkingMemoryEstimateScalesWithModeFrameCountAndScene() {
+        let meanFull = estimateStackWorkingMemoryBytes(
+            width: 120,
+            height: 80,
+            frameCount: 3,
+            mode: .mean,
+            sceneMode: .fullFrame
+        )
+        let sigmaFull = estimateStackWorkingMemoryBytes(
+            width: 120,
+            height: 80,
+            frameCount: 3,
+            mode: .sigma,
+            sceneMode: .fullFrame
+        )
+        let sigmaMoreFrames = estimateStackWorkingMemoryBytes(
+            width: 120,
+            height: 80,
+            frameCount: 5,
+            mode: .sigma,
+            sceneMode: .fullFrame
+        )
+        let sigmaSkyGround = estimateStackWorkingMemoryBytes(
+            width: 120,
+            height: 80,
+            frameCount: 3,
+            mode: .sigma,
+            sceneMode: .skyAndGround
+        )
+
+        XCTAssertGreaterThan(meanFull, 0)
+        XCTAssertGreaterThan(sigmaFull, meanFull)
+        XCTAssertGreaterThan(sigmaMoreFrames, sigmaFull)
+        XCTAssertGreaterThan(sigmaSkyGround, sigmaFull)
     }
 
     func testSwiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable() throws {
@@ -170,4 +242,14 @@ private func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("MySequatorTests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private func readBigEndianFloat(_ data: Data, offset: Int) -> Float {
+    let bytes = [UInt8](data[offset..<(offset + 4)])
+    let bits =
+        UInt32(bytes[0]) << 24 |
+        UInt32(bytes[1]) << 16 |
+        UInt32(bytes[2]) << 8 |
+        UInt32(bytes[3])
+    return Float(bitPattern: bits)
 }

@@ -124,29 +124,109 @@ Sources:
   - Both modes reported stable sky alignments around `DSC05766: dy=-3 dx=+3`
     and `DSC05768: dy=+3 dx=-2`.
 
+## Completed in Milestone 0.4
+
+- Added edge-aware sky-mask refinement for sky/ground scene modes.
+  - Refinement works near the sky/ground seam and pulls dark bottom-connected
+    foreground details, such as tree branches, ridges, and building edges, into
+    the ground mask.
+  - The existing guard-pixel and feather controls still decide the final blend
+    ramp after the hard mask has been refined.
+- Added `SkyMaskOptions.refineEdges`, `boundaryProtectionPixels`, and
+  `darkForegroundPercentile`.
+- Enabled refinement by default for generated and imported masks in
+  `skyFreezeGround` and `skyAndGround`; users can disable it when they want to
+  trust an external mask exactly.
+- Added SwiftUI controls for edge refinement and boundary protection, plus a
+  manual Refine action for imported or edited masks.
+- Added CLI options `--no-refine-sky-mask` and `--boundary-protection`.
+- Added synthetic XCTest coverage for:
+  - bottom-connected dark foreground being absorbed into the ground mask,
+  - isolated dark sky patches staying sky,
+  - disabled refinement preserving the original mask,
+  - refined masks preserving foreground edges during sky-freeze-ground stacking.
+- The refinement design references the user-provided `SHIGUREStacker-source`
+  edge-protection and bottom-connectivity ideas. It remains independent of
+  Sequator source code, assets, binaries, and private behavior.
+
+## Completed in Milestone 0.5
+
+- Added `AlignmentModel` with conservative and wide-angle modes.
+- Implemented an optional second-order polynomial inverse warp for wide-angle
+  star alignment when the star matcher finds enough inliers.
+- Kept the conservative similarity/translation path as the default alignment
+  behavior.
+- Added CLI and SwiftUI alignment controls:
+  - `--alignment conservative|wide-angle`
+  - GUI `Alignment` picker
+- Added synthetic XCTest coverage proving the wide-angle path can select a
+  polynomial warp on distorted star fields.
+
+## Completed in Milestone 0.6
+
+- Added float FITS output for `.fit`, `.fits`, and `.fts` paths.
+  - The writer emits a 32-bit big-endian RGB FITS cube suitable for linear
+    astro post-processing workflows.
+- Allowed star-trail composition in `skyFreezeGround` mode. The sky is no
+  longer aligned in this mode, preserving trails while keeping the ground fixed.
+- Kept `trails` disabled for `skyAndGround`, where separate sky/ground
+  accumulation still needs a dedicated design.
+- Added XCTest coverage for FITS header/data layout and sky-freeze-ground
+  trails validation.
+
+## Completed in Milestone 0.7
+
+- Added first-pass RAW processing controls:
+  - `RawProcessingOptions.whiteBalanceMode`
+  - `RawProcessingOptions.noAutoBrightness`
+  - `RawProcessingOptions.highlightMode`
+  - `RawProcessingOptions.userBlackLevel`
+- Added a LibRaw C shim entry point that accepts those RAW decode options while
+  preserving the previous default behavior: camera white balance, no automatic
+  brightening, clipped highlights, and camera/default black level.
+- Passed RAW options through dark/flat calibration, base loading, all stack
+  frame loads, and GUI auto/refine sky-mask image loads.
+- Added CLI options:
+  - `--raw-white-balance camera|auto|none`
+  - `--raw-auto-bright`
+  - `--no-raw-auto-bright`
+  - `--raw-highlight clip|unclip|blend|rebuild`
+  - `--raw-black-level VALUE`
+- Added SwiftUI RAW controls for white balance, highlight handling, LibRaw auto
+  brightness, and black level.
+- Added a progress callback message with an estimated working-memory footprint
+  for the current stack dimensions, frame count, composition mode, and scene
+  mode.
+- Added XCTest coverage for RAW defaults and memory-estimate scaling.
+
 ## Known Limitations
 
-- Alignment handles translation and conservative similarity transforms. It does
-  not yet solve lens distortion, projection distortion, local mesh warps, or
+- Alignment handles translation, conservative similarity transforms, and an
+  optional second-order polynomial wide-angle model. It does not yet solve local
+  mesh warps, lens-profile-aware warps, projection changes, or
   atmospheric-refraction effects.
 - Swift phase correlation resizes the working luminance images to power-of-two
   dimensions for Accelerate FFT support.
-- Automatic sky masks are first-pass estimates. Complex horizons, trees, and
-  buildings still require manual brush correction or an imported mask.
-- Sky/ground scene modes do not support star-trail composition yet.
+- Automatic sky masks now include dark connected foreground edge refinement,
+  but highly complex horizons, trees, and buildings can still require manual
+  brush correction or an imported mask.
+- Star-trail composition works for full-frame and sky-freeze-ground modes, but
+  not for separate sky/ground stacking.
+- RAW controls expose first-pass LibRaw decode parameters only. They do not yet
+  include camera-profile management, per-channel custom white balance, or
+  demosaic algorithm selection.
 - XISF import is not implemented; convert XISF to 16-bit TIFF in PixInsight.
 - Time-lapse batch output is not implemented.
-- Memory use is simple and may be high for many large 16-bit frames.
+- Memory use is now estimated and reported, but the sigma stacker still keeps
+  frame data in memory instead of using chunked/streaming accumulation.
 
 ## Next Milestones
 
-1. Improve automatic sky segmentation with edge-aware horizon detection and
-   better handling for trees/buildings.
-2. Add local mesh or lens-aware sky alignment for ultra-wide lenses and longer
+1. Add local mesh or lens-aware sky alignment for ultra-wide lenses and longer
    sequences.
-3. Add RAW-specific controls for white balance, highlight handling, and black
-   level behavior.
-4. Add chunked/streaming accumulation for lower memory use.
-5. Add star-trail support for sky/ground scene modes.
-6. Add time-lapse batch mode.
-7. Build a signed/distributable `.app` package once the workflow stabilizes.
+2. Add chunked/streaming accumulation for lower memory use on long RAW
+   sequences.
+3. Extend star-trail support to separate sky/ground stacking if the desired
+   compositing behavior is defined.
+4. Add time-lapse batch mode.
+5. Build a signed/distributable `.app` package once the workflow stabilizes.

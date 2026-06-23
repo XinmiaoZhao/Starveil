@@ -14,7 +14,16 @@ typedef struct {
     char *error_message;
 } MSQFloatRGBImage;
 
+typedef struct {
+    int32_t white_balance_mode;
+    int32_t no_auto_bright;
+    int32_t highlight_mode;
+    int32_t use_user_black;
+    int32_t user_black;
+} MSQRawDecodeOptions;
+
 int msq_load_raw_linear_rgb(const char *path, MSQFloatRGBImage *out_image);
+int msq_load_raw_linear_rgb_with_options(const char *path, const MSQRawDecodeOptions *options, MSQFloatRGBImage *out_image);
 int msq_read_tiff_rgb_float(const char *path, MSQFloatRGBImage *out_image);
 int msq_write_float_tiff(const char *path, int32_t width, int32_t height, const float *data, char **error_message);
 int msq_write_uint16_tiff(const char *path, int32_t width, int32_t height, const float *data, char **error_message);

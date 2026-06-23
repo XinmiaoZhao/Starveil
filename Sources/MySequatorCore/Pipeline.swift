@@ -16,8 +16,8 @@ public func stackImages(
         options.reduceLightPollution = false
         options.enhanceStars = false
     }
-    if options.sceneMode != .fullFrame, options.mode == .trails {
-        throw MySequatorError.invalidOption("Star-trail mode is not supported for sky/ground scene composition.")
+    if options.sceneMode == .skyAndGround, options.mode == .trails {
+        throw MySequatorError.invalidOption("Star-trail mode is only supported for full-frame or sky-freeze-ground scene composition.")
     }
 
     var paths = imagePaths
@@ -27,12 +27,13 @@ public func stackImages(
     }
 
     report(progress, "Preparing calibration frames", 0.02)
-    let dark = try medianFrame(options.darkPaths)
-    let flat = try medianFrame(options.flatPaths)
+    let dark = try medianFrame(options.darkPaths, rawOptions: options.rawOptions)
+    let flat = try medianFrame(options.flatPaths, rawOptions: options.rawOptions)
 
     report(progress, "Loading base frame \(basePath.lastPathComponent)", 0.08)
-    let base = try calibrate(loadImage(basePath), dark: dark, flat: flat)
+    let base = try calibrate(loadImage(basePath, rawOptions: options.rawOptions), dark: dark, flat: flat)
     let baseGray = base.luminance()
+    report(progress, "Estimated working memory \(formatByteCount(estimateStackWorkingMemoryBytes(width: base.width, height: base.height, frameCount: paths.count, mode: options.mode, sceneMode: options.sceneMode)))", 0.09)
 
     if options.sceneMode != .fullFrame {
         return try stackSkyGroundImages(
@@ -59,7 +60,7 @@ public func stackImages(
             frame = base
         } else {
             report(progress, "Loading \(path.lastPathComponent)", fraction)
-            frame = try calibrate(loadImage(path), dark: dark, flat: flat)
+            frame = try calibrate(loadImage(path, rawOptions: options.rawOptions), dark: dark, flat: flat)
         }
         guard frame.hasSameShape(as: base) else {
             throw MySequatorError.shapeMismatch("\(path.lastPathComponent) has shape \(frame.width)x\(frame.height), expected \(base.width)x\(base.height).")
@@ -85,7 +86,8 @@ public func stackImages(
                 moving: frame.luminance(),
                 width: frame.width,
                 height: frame.height,
-                maxDimension: options.alignmentMaxDimension
+                maxDimension: options.alignmentMaxDimension,
+                alignmentModel: options.alignmentModel
             )
             dy = transform.dy
             dx = transform.dx
@@ -166,15 +168,23 @@ private func stackSkyGroundImages(
     options: StackOptions,
     progress: ProgressCallback?
 ) throws -> StackResult {
-    let skyMask: SkyMask
+    let initialSkyMask: SkyMask
     if let provided = options.skyMask {
         guard provided.hasSameShape(as: base) else {
             throw MySequatorError.shapeMismatch("Sky mask has shape \(provided.width)x\(provided.height), expected \(base.width)x\(base.height).")
         }
-        skyMask = provided
+        initialSkyMask = provided
     } else {
         report(progress, "Generating automatic sky mask", 0.10)
-        skyMask = try autoSkyMask(for: base, options: options.skyMaskOptions)
+        initialSkyMask = try autoSkyMask(for: base, options: options.skyMaskOptions)
+    }
+
+    let skyMask: SkyMask
+    if options.skyMaskOptions.refineEdges {
+        report(progress, "Refining sky mask edges", 0.11)
+        skyMask = initialSkyMask.refinedForForegroundEdges(baseImage: base, options: options.skyMaskOptions)
+    } else {
+        skyMask = initialSkyMask
     }
 
     let skySourceMask = skyMask.erodedSkyMask(guardPixels: options.skyMaskOptions.skyGuardPixels)
@@ -198,7 +208,7 @@ private func stackSkyGroundImages(
             frame = base
         } else {
             report(progress, "Loading \(path.lastPathComponent)", fraction)
-            frame = try calibrate(loadImage(path), dark: dark, flat: flat)
+            frame = try calibrate(loadImage(path, rawOptions: options.rawOptions), dark: dark, flat: flat)
         }
         guard frame.hasSameShape(as: base) else {
             throw MySequatorError.shapeMismatch("\(path.lastPathComponent) has shape \(frame.width)x\(frame.height), expected \(base.width)x\(base.height).")
@@ -206,7 +216,7 @@ private func stackSkyGroundImages(
 
         report(progress, "Aligning sky \(path.lastPathComponent)", min(fraction + 0.04, 0.80))
         let transform: ImageTransform
-        if path == basePath {
+        if path == basePath || options.mode == .trails {
             transform = .identity()
         } else {
             transform = try estimateImageTransform(
@@ -215,7 +225,8 @@ private func stackSkyGroundImages(
                 width: frame.width,
                 height: frame.height,
                 maxDimension: options.alignmentMaxDimension,
-                skyMask: skyMask
+                skyMask: skyMask,
+                alignmentModel: options.alignmentModel
             )
         }
 
@@ -402,6 +413,40 @@ private func sigmaClippedMean(_ frames: [FloatRGBImage], masks: [[UInt8]], sigma
         }
     }
     return out
+}
+
+public func estimateStackWorkingMemoryBytes(
+    width: Int,
+    height: Int,
+    frameCount: Int,
+    mode: CompositionMode,
+    sceneMode: SceneCompositionMode
+) -> Int64 {
+    let safeWidth = max(width, 0)
+    let safeHeight = max(height, 0)
+    let safeFrameCount = max(frameCount, 0)
+    let pixelCount = Int64(safeWidth) * Int64(safeHeight)
+    let imageBytes = pixelCount * 3 * Int64(MemoryLayout<Float>.size)
+    let maskBytes = pixelCount * Int64(MemoryLayout<UInt8>.size)
+    let layerCount: Int64 = sceneMode == .fullFrame ? 1 : 2
+    let storedFrameBytes = Int64(safeFrameCount) * layerCount * (imageBytes + maskBytes)
+    let accumulatorBytes = layerCount * (imageBytes + pixelCount * Int64(MemoryLayout<Float>.size))
+    let sigmaScratchBytes = mode == .sigma ? imageBytes : 0
+    return storedFrameBytes + accumulatorBytes + sigmaScratchBytes
+}
+
+private func formatByteCount(_ bytes: Int64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB"]
+    var value = Double(max(bytes, 0))
+    var unitIndex = 0
+    while value >= 1024, unitIndex + 1 < units.count {
+        value /= 1024
+        unitIndex += 1
+    }
+    if unitIndex == 0 {
+        return "\(Int(value)) \(units[unitIndex])"
+    }
+    return String(format: "%.1f %@", value, units[unitIndex])
 }
 
 private func report(_ progress: ProgressCallback?, _ message: String, _ fraction: Double) {

@@ -39,6 +39,48 @@ final class SkyGroundTests: XCTestCase {
         XCTAssertEqual(feathered[0 * 10 + 4], 1, accuracy: 0.001)
     }
 
+    func testEdgeRefinementPullsBottomConnectedDarkForegroundIntoGround() throws {
+        let fixture = try makeMaskRefinementFixture()
+
+        let refined = fixture.mask.refinedForForegroundEdges(
+            baseImage: fixture.image,
+            options: SkyMaskOptions(skyGuardPixels: 0, featherPixels: 2, boundaryProtectionPixels: 28)
+        )
+
+        XCTAssertEqual(fixture.mask[30, 24], 255)
+        XCTAssertLessThan(refined[30, 24], 128)
+        XCTAssertLessThan(refined[30, 34], 128)
+    }
+
+    func testEdgeRefinementDoesNotPullIsolatedDarkSkyPatchIntoGround() throws {
+        let fixture = try makeMaskRefinementFixture()
+
+        let refined = fixture.mask.refinedForForegroundEdges(
+            baseImage: fixture.image,
+            options: SkyMaskOptions(skyGuardPixels: 0, featherPixels: 2, boundaryProtectionPixels: 28)
+        )
+
+        XCTAssertEqual(fixture.mask[8, 20], 255)
+        XCTAssertEqual(refined[8, 20], 255)
+        XCTAssertEqual(refined[12, 30], 255)
+    }
+
+    func testEdgeRefinementCanBeDisabled() throws {
+        let fixture = try makeMaskRefinementFixture()
+
+        let refined = fixture.mask.refinedForForegroundEdges(
+            baseImage: fixture.image,
+            options: SkyMaskOptions(
+                skyGuardPixels: 0,
+                featherPixels: 2,
+                refineEdges: false,
+                boundaryProtectionPixels: 28
+            )
+        )
+
+        XCTAssertEqual(refined.alpha, fixture.mask.alpha)
+    }
+
     func testWarpImageWithMaskDoesNotWrapAndInterpolates() throws {
         var image = FloatRGBImage(width: 5, height: 5)
         for y in 0..<5 {
@@ -85,6 +127,35 @@ final class SkyGroundTests: XCTestCase {
         XCTAssertGreaterThan(result.image[fixture.star.x, fixture.star.y, 2], 0.45)
     }
 
+    func testSkyFreezeGroundRefinedMaskKeepsDarkForegroundEdge() throws {
+        let temp = try temporaryDirectory()
+        let fixture = try makeForegroundEdgeStackFixture()
+        var paths: [URL] = []
+        for (index, frame) in fixture.frames.enumerated() {
+            let path = temp.appendingPathComponent("edge_\(index).tiff")
+            try saveImage(frame, to: path)
+            paths.append(path)
+        }
+
+        let result = try stackImages(
+            paths,
+            options: StackOptions(
+                mode: .mean,
+                sceneMode: .skyFreezeGround,
+                basePath: paths[0],
+                skyMask: fixture.mask,
+                skyMaskOptions: SkyMaskOptions(
+                    skyGuardPixels: 0,
+                    featherPixels: 2,
+                    boundaryProtectionPixels: 32
+                )
+            )
+        )
+
+        XCTAssertLessThan(result.skyMask?[fixture.branch.x, fixture.branch.y] ?? 255, 128)
+        XCTAssertEqual(result.image[fixture.branch.x, fixture.branch.y, 0], fixture.base[fixture.branch.x, fixture.branch.y, 0], accuracy: 2.0 / 65535.0)
+    }
+
     func testSkyAndGroundStacksGroundWithoutMovingIt() throws {
         let temp = try temporaryDirectory()
         let fixture = try makeSkyGroundFixture(addGroundOffsets: true)
@@ -118,9 +189,72 @@ final class SkyGroundTests: XCTestCase {
         try saveImage(image, to: path)
 
         XCTAssertThrowsError(
-            try stackImages([path], options: StackOptions(mode: .trails, sceneMode: .skyFreezeGround))
+            try stackImages([path], options: StackOptions(mode: .trails, sceneMode: .skyAndGround))
         )
     }
+
+    func testSkyFreezeGroundAllowsStarTrailsWithoutAligningSky() throws {
+        let temp = try temporaryDirectory()
+        let fixture = try makeSkyGroundFixture()
+        var paths: [URL] = []
+        for (index, frame) in fixture.frames.enumerated() {
+            let path = temp.appendingPathComponent("trails_\(index).tiff")
+            try saveImage(frame, to: path)
+            paths.append(path)
+        }
+
+        let result = try stackImages(
+            paths,
+            options: StackOptions(
+                mode: .trails,
+                sceneMode: .skyFreezeGround,
+                basePath: paths[0],
+                skyMask: fixture.mask,
+                skyMaskOptions: SkyMaskOptions(skyGuardPixels: 0, featherPixels: 2)
+            )
+        )
+
+        XCTAssertTrue(result.alignments.allSatisfy { $0.dx == 0 && $0.dy == 0 })
+        XCTAssertEqual(result.image[10, 50, 0], fixture.base[10, 50, 0], accuracy: 2.0 / 65535.0)
+        XCTAssertGreaterThan(result.image[fixture.star.x, fixture.star.y, 2], 0.45)
+    }
+}
+
+private func makeMaskRefinementFixture() throws -> (image: FloatRGBImage, mask: SkyMask) {
+    let width = 64
+    let height = 48
+    let horizon = 34
+    var image = FloatRGBImage(width: width, height: height, repeating: 0.025)
+    for y in horizon..<height {
+        for x in 0..<width {
+            image[x, y, 0] = 0.08
+            image[x, y, 1] = 0.075
+            image[x, y, 2] = 0.07
+        }
+    }
+
+    for y in 20..<height {
+        for x in 29...31 {
+            image[x, y, 0] = 0.004
+            image[x, y, 1] = 0.004
+            image[x, y, 2] = 0.004
+        }
+    }
+    for y in 18...21 {
+        for x in 7...10 {
+            image[x, y, 0] = 0.004
+            image[x, y, 1] = 0.004
+            image[x, y, 2] = 0.004
+        }
+    }
+
+    var alpha = Array(repeating: UInt8(0), count: width * height)
+    for y in 0..<horizon {
+        for x in 0..<width {
+            alpha[y * width + x] = 255
+        }
+    }
+    return (image, try SkyMask(width: width, height: height, alpha: alpha))
 }
 
 private func makeSkyGroundFixture(addGroundOffsets: Bool = false) throws -> (base: FloatRGBImage, frames: [FloatRGBImage], mask: SkyMask, star: (x: Int, y: Int)) {
@@ -188,6 +322,94 @@ private func makeSkyGroundFixture(addGroundOffsets: Bool = false) throws -> (bas
     }
 
     return (base: base, frames: frames, mask: mask, star: starPoints[7])
+}
+
+private func makeForegroundEdgeStackFixture() throws -> (base: FloatRGBImage, frames: [FloatRGBImage], mask: SkyMask, branch: (x: Int, y: Int)) {
+    let width = 96
+    let height = 64
+    let horizon = 42
+    let branch = (x: 36, y: 29)
+    var base = FloatRGBImage(width: width, height: height, repeating: 0.025)
+
+    for y in horizon..<height {
+        for x in 0..<width {
+            base[x, y, 0] = 0.11
+            base[x, y, 1] = 0.10
+            base[x, y, 2] = 0.08
+        }
+    }
+
+    var starPoints: [(x: Int, y: Int)] = []
+    for row in 0..<4 {
+        for column in 0..<6 {
+            starPoints.append((x: 10 + column * 13 + (row % 2) * 5, y: 7 + row * 8))
+        }
+    }
+    for point in starPoints {
+        for yy in max(0, point.y - 1)...min(height - 1, point.y + 1) {
+            for xx in max(0, point.x - 1)...min(width - 1, point.x + 1) {
+                base[xx, yy, 0] = 0.45
+                base[xx, yy, 1] = 0.50
+                base[xx, yy, 2] = 0.85
+            }
+        }
+        base[point.x, point.y, 0] = 0.80
+        base[point.x, point.y, 1] = 0.85
+        base[point.x, point.y, 2] = 1.00
+    }
+
+    paintStaticBranch(&base, x: branch.x, fromY: 24)
+
+    var alpha = Array(repeating: UInt8(0), count: width * height)
+    for y in 0..<horizon {
+        for x in 0..<width {
+            alpha[y * width + x] = 255
+        }
+    }
+    let mask = try SkyMask(width: width, height: height, alpha: alpha)
+
+    let shifts = [(0, 0), (2, -1), (-2, 3), (1, 2)]
+    let skyOnly = skyOnlyImage(baseWithoutBranch(base, branchX: branch.x, fromY: 24), horizon: horizon)
+    var frames: [FloatRGBImage] = []
+    for shift in shifts {
+        let shiftedSky = translateWithMask(skyOnly, dy: shift.0, dx: shift.1).0
+        var frame = base
+        for y in 0..<horizon {
+            for x in 0..<width {
+                for channel in 0..<3 {
+                    frame[x, y, channel] = shiftedSky[x, y, channel]
+                }
+            }
+        }
+        paintStaticBranch(&frame, x: branch.x, fromY: 24)
+        frames.append(frame)
+    }
+
+    return (base, frames, mask, branch)
+}
+
+private func baseWithoutBranch(_ image: FloatRGBImage, branchX: Int, fromY: Int) -> FloatRGBImage {
+    var out = image
+    for y in fromY..<out.height {
+        for x in max(0, branchX - 1)...min(out.width - 1, branchX + 1) {
+            if y < 42 {
+                out[x, y, 0] = 0.025
+                out[x, y, 1] = 0.025
+                out[x, y, 2] = 0.025
+            }
+        }
+    }
+    return out
+}
+
+private func paintStaticBranch(_ image: inout FloatRGBImage, x branchX: Int, fromY: Int) {
+    for y in fromY..<image.height {
+        for x in max(0, branchX - 1)...min(image.width - 1, branchX + 1) {
+            image[x, y, 0] = 0.004
+            image[x, y, 1] = 0.004
+            image[x, y, 2] = 0.004
+        }
+    }
 }
 
 private func skyOnlyImage(_ image: FloatRGBImage, horizon: Int) -> FloatRGBImage {

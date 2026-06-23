@@ -6,13 +6,31 @@ public struct ImageTransform: Sendable, Equatable {
     public var tx: Float
     public var ty: Float
     public var peak: Float
+    public var polynomialWidth: Int?
+    public var polynomialHeight: Int?
+    public var polynomialXCoefficients: [Float]?
+    public var polynomialYCoefficients: [Float]?
 
-    public init(a: Float, b: Float, tx: Float, ty: Float, peak: Float = 1) {
+    public init(
+        a: Float,
+        b: Float,
+        tx: Float,
+        ty: Float,
+        peak: Float = 1,
+        polynomialWidth: Int? = nil,
+        polynomialHeight: Int? = nil,
+        polynomialXCoefficients: [Float]? = nil,
+        polynomialYCoefficients: [Float]? = nil
+    ) {
         self.a = a
         self.b = b
         self.tx = tx
         self.ty = ty
         self.peak = peak
+        self.polynomialWidth = polynomialWidth
+        self.polynomialHeight = polynomialHeight
+        self.polynomialXCoefficients = polynomialXCoefficients
+        self.polynomialYCoefficients = polynomialYCoefficients
     }
 
     public static func identity() -> ImageTransform {
@@ -39,7 +57,15 @@ public struct ImageTransform: Sendable, Equatable {
         atan2(b, a)
     }
 
+    public var usesPolynomialWarp: Bool {
+        polynomialWidth != nil &&
+        polynomialHeight != nil &&
+        polynomialXCoefficients?.count == 6 &&
+        polynomialYCoefficients?.count == 6
+    }
+
     public var isIntegerTranslation: Bool {
+        !usesPolynomialWarp &&
         abs(a - 1) < 1e-6 &&
         abs(b) < 1e-6 &&
         abs(tx - tx.rounded()) < 1e-6 &&
@@ -47,6 +73,21 @@ public struct ImageTransform: Sendable, Equatable {
     }
 
     public func sourcePoint(forDestinationX x: Float, y: Float) -> (x: Float, y: Float)? {
+        if usesPolynomialWarp,
+           let width = polynomialWidth,
+           let height = polynomialHeight,
+           let xCoefficients = polynomialXCoefficients,
+           let yCoefficients = polynomialYCoefficients {
+            return polynomialSourcePoint(
+                outputX: x,
+                outputY: y,
+                width: width,
+                height: height,
+                xCoefficients: xCoefficients,
+                yCoefficients: yCoefficients
+            )
+        }
+
         let determinant = a * a + b * b
         guard determinant > 1e-8 else { return nil }
         let centeredX = x - tx
@@ -54,6 +95,43 @@ public struct ImageTransform: Sendable, Equatable {
         return (
             x: (a * centeredX + b * centeredY) / determinant,
             y: (-b * centeredX + a * centeredY) / determinant
+        )
+    }
+
+    private func polynomialSourcePoint(
+        outputX: Float,
+        outputY: Float,
+        width: Int,
+        height: Int,
+        xCoefficients: [Float],
+        yCoefficients: [Float]
+    ) -> (x: Float, y: Float)? {
+        guard width > 0, height > 0, xCoefficients.count == 6, yCoefficients.count == 6 else {
+            return nil
+        }
+
+        let scale = Float(max(width, height))
+        let normalizedX = (outputX - Float(width) * 0.5) / scale
+        let normalizedY = (outputY - Float(height) * 0.5) / scale
+        let terms: [Float] = [
+            1,
+            normalizedX,
+            normalizedY,
+            normalizedX * normalizedY,
+            normalizedX * normalizedX,
+            normalizedY * normalizedY
+        ]
+
+        var sourceX: Float = 0
+        var sourceY: Float = 0
+        for index in 0..<6 {
+            sourceX += xCoefficients[index] * terms[index]
+            sourceY += yCoefficients[index] * terms[index]
+        }
+
+        return (
+            x: sourceX * scale + Float(width) * 0.5,
+            y: sourceY * scale + Float(height) * 0.5
         )
     }
 }

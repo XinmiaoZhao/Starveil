@@ -39,6 +39,45 @@ private extension SceneCompositionMode {
     }
 }
 
+private extension AlignmentModel {
+    var displayName: String {
+        switch self {
+        case .conservative:
+            return "Conservative"
+        case .wideAngle:
+            return "Wide angle"
+        }
+    }
+}
+
+private extension RawWhiteBalanceMode {
+    var displayName: String {
+        switch self {
+        case .camera:
+            return "Camera"
+        case .auto:
+            return "Auto"
+        case .none:
+            return "None"
+        }
+    }
+}
+
+private extension RawHighlightMode {
+    var displayName: String {
+        switch self {
+        case .clip:
+            return "Clip"
+        case .unclip:
+            return "Unclip"
+        case .blend:
+            return "Blend"
+        case .rebuild:
+            return "Rebuild"
+        }
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     @Published var imagePaths: [URL] = []
@@ -48,7 +87,7 @@ final class AppModel: ObservableObject {
     @Published var mode: CompositionMode = .sigma
     @Published var sceneMode: SceneCompositionMode = .skyFreezeGround {
         didSet {
-            if sceneMode != .fullFrame, mode == .trails {
+            if sceneMode == .skyAndGround, mode == .trails {
                 mode = .sigma
             }
         }
@@ -60,6 +99,13 @@ final class AppModel: ObservableObject {
     @Published var brushSize = 48.0
     @Published var skyGuardPixels = 8.0
     @Published var maskFeatherPixels = 24.0
+    @Published var refineSkyMaskEdges = true
+    @Published var boundaryProtectionPixels = 80.0
+    @Published var alignmentModel: AlignmentModel = .conservative
+    @Published var rawWhiteBalanceMode: RawWhiteBalanceMode = .camera
+    @Published var rawAutoBrightness = false
+    @Published var rawHighlightMode: RawHighlightMode = .clip
+    @Published var rawBlackLevel = ""
     @Published var stretch: OutputStretch = .none
     @Published var tiffDepth: TIFFDepth = .uint16
     @Published var reduceLightPollution = false
@@ -185,6 +231,13 @@ final class AppModel: ObservableObject {
             return
         }
         let output = URL(fileURLWithPath: outputPath)
+        let rawOptions: RawProcessingOptions
+        do {
+            rawOptions = try makeRawOptions()
+        } catch {
+            status = error.localizedDescription
+            return
+        }
         let stackOptions = StackOptions(
             mode: mode,
             darkPaths: darkPaths,
@@ -192,6 +245,8 @@ final class AppModel: ObservableObject {
             outputStretch: stretch,
             reduceLightPollution: reduceLightPollution,
             enhanceStars: enhanceStars,
+            alignmentModel: alignmentModel,
+            rawOptions: rawOptions,
             linearMaster: linearMaster
         )
         let saveOptions = SaveOptions(tiffDepth: tiffDepth, clip: !linearMaster)
@@ -199,7 +254,9 @@ final class AppModel: ObservableObject {
         let mask = skyMask
         let maskOptions = SkyMaskOptions(
             skyGuardPixels: Int(skyGuardPixels.rounded()),
-            featherPixels: Int(maskFeatherPixels.rounded())
+            featherPixels: Int(maskFeatherPixels.rounded()),
+            refineEdges: refineSkyMaskEdges,
+            boundaryProtectionPixels: Int(boundaryProtectionPixels.rounded())
         )
         progress = 0
         isStacking = true
@@ -243,20 +300,67 @@ final class AppModel: ObservableObject {
         }
         let options = SkyMaskOptions(
             skyGuardPixels: Int(skyGuardPixels.rounded()),
-            featherPixels: Int(maskFeatherPixels.rounded())
+            featherPixels: Int(maskFeatherPixels.rounded()),
+            refineEdges: refineSkyMaskEdges,
+            boundaryProtectionPixels: Int(boundaryProtectionPixels.rounded())
         )
+        let rawOptions: RawProcessingOptions
+        do {
+            rawOptions = try makeRawOptions()
+        } catch {
+            status = error.localizedDescription
+            return
+        }
         isMasking = true
         status = "Generating sky mask \(url.lastPathComponent)..."
         Task {
             do {
                 let mask = try await Task.detached {
-                    try autoSkyMask(for: loadImage(url), options: options)
+                    let image = try loadImage(url, rawOptions: rawOptions)
+                    return try autoSkyMask(for: image, options: options)
+                        .refinedForForegroundEdges(baseImage: image, options: options)
                 }.value
                 skyMask = mask
                 refreshMaskOverlay()
                 status = "Sky mask ready."
             } catch {
                 status = "Sky mask failed: \(error.localizedDescription)"
+            }
+            isMasking = false
+        }
+    }
+
+    func refineSkyMask() {
+        guard let mask = skyMask, let url = baseImageURL else {
+            status = "Generate or import a sky mask before refining."
+            return
+        }
+        let options = SkyMaskOptions(
+            skyGuardPixels: Int(skyGuardPixels.rounded()),
+            featherPixels: Int(maskFeatherPixels.rounded()),
+            refineEdges: true,
+            boundaryProtectionPixels: Int(boundaryProtectionPixels.rounded())
+        )
+        let rawOptions: RawProcessingOptions
+        do {
+            rawOptions = try makeRawOptions()
+        } catch {
+            status = error.localizedDescription
+            return
+        }
+        isMasking = true
+        status = "Refining sky mask edges..."
+        Task {
+            do {
+                let refined = try await Task.detached {
+                    let image = try loadImage(url, rawOptions: rawOptions)
+                    return mask.refinedForForegroundEdges(baseImage: image, options: options)
+                }.value
+                skyMask = refined
+                refreshMaskOverlay()
+                status = "Sky mask refined."
+            } catch {
+                status = "Mask refine failed: \(error.localizedDescription)"
             }
             isMasking = false
         }
@@ -348,6 +452,24 @@ final class AppModel: ObservableObject {
     private var baseImageURL: URL? {
         guard !imagePaths.isEmpty else { return nil }
         return imagePaths[imagePaths.count / 2]
+    }
+
+    private func makeRawOptions() throws -> RawProcessingOptions {
+        let blackText = rawBlackLevel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let blackLevel: Int?
+        if blackText.isEmpty {
+            blackLevel = nil
+        } else if let value = Int(blackText), value >= 0, value <= Int(Int32.max) {
+            blackLevel = value
+        } else {
+            throw MySequatorError.invalidOption("RAW black level must be a non-negative 32-bit integer.")
+        }
+        return RawProcessingOptions(
+            whiteBalanceMode: rawWhiteBalanceMode,
+            noAutoBrightness: !rawAutoBrightness,
+            highlightMode: rawHighlightMode,
+            userBlackLevel: blackLevel
+        )
     }
 
     private func fittedPreviewRect(in viewSize: CGSize) -> CGRect {
@@ -456,6 +578,27 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            GroupBox("RAW") {
+                VStack(alignment: .leading) {
+                    Picker("White balance", selection: $model.rawWhiteBalanceMode) {
+                        ForEach(RawWhiteBalanceMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    Picker("Highlights", selection: $model.rawHighlightMode) {
+                        ForEach(RawHighlightMode.allCases, id: \.self) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
+                    Toggle("LibRaw auto brightness", isOn: $model.rawAutoBrightness)
+                    HStack {
+                        Text("Black level")
+                        TextField("Camera default", text: $model.rawBlackLevel)
+                            .frame(width: 120)
+                    }
+                }
+            }
+
             GroupBox("Output") {
                 VStack(alignment: .leading) {
                     HStack {
@@ -479,8 +622,13 @@ struct ContentView: View {
                         }
                     }
                     Picker("Mode", selection: $model.mode) {
-                        ForEach(CompositionMode.allCases.filter { model.sceneMode == .fullFrame || $0 != .trails }, id: \.self) { mode in
+                        ForEach(CompositionMode.allCases.filter { model.sceneMode != .skyAndGround || $0 != .trails }, id: \.self) { mode in
                             Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    Picker("Alignment", selection: $model.alignmentModel) {
+                        ForEach(AlignmentModel.allCases, id: \.self) { alignment in
+                            Text(alignment.displayName).tag(alignment)
                         }
                     }
                     Picker("Output stretch", selection: $model.stretch) {
@@ -506,6 +654,8 @@ struct ContentView: View {
                             .disabled(model.skyMask == nil)
                     }
                     HStack {
+                        Button("Refine", action: model.refineSkyMask)
+                            .disabled(model.skyMask == nil || model.imagePaths.isEmpty || model.isMasking)
                         Button("Clear", action: model.clearSkyMask)
                             .disabled(model.skyMask == nil)
                         Button("Invert", action: model.invertSkyMask)
@@ -533,6 +683,13 @@ struct ContentView: View {
                         Text("Feather")
                         Slider(value: $model.maskFeatherPixels, in: 0...160)
                         Text("\(Int(model.maskFeatherPixels.rounded())) px")
+                            .monospacedDigit()
+                    }
+                    Toggle("Refine edges", isOn: $model.refineSkyMaskEdges)
+                    HStack {
+                        Text("Boundary")
+                        Slider(value: $model.boundaryProtectionPixels, in: 0...240)
+                        Text("\(Int(model.boundaryProtectionPixels.rounded())) px")
                             .monospacedDigit()
                     }
                 }

@@ -48,6 +48,16 @@ static float msq_clamp_float(float value, float lo, float hi) {
 }
 
 int msq_load_raw_linear_rgb(const char *path, MSQFloatRGBImage *out_image) {
+    MSQRawDecodeOptions options;
+    options.white_balance_mode = 0;
+    options.no_auto_bright = 1;
+    options.highlight_mode = 0;
+    options.use_user_black = 0;
+    options.user_black = 0;
+    return msq_load_raw_linear_rgb_with_options(path, &options, out_image);
+}
+
+int msq_load_raw_linear_rgb_with_options(const char *path, const MSQRawDecodeOptions *options, MSQFloatRGBImage *out_image) {
     if (out_image == NULL) {
         return 1;
     }
@@ -61,8 +71,21 @@ int msq_load_raw_linear_rgb(const char *path, MSQFloatRGBImage *out_image) {
         return msq_fail_image(out_image, "LibRaw initialization failed.");
     }
 
-    raw->params.use_camera_wb = 1;
-    raw->params.no_auto_bright = 1;
+    int white_balance_mode = options == NULL ? 0 : options->white_balance_mode;
+    if (white_balance_mode < 0 || white_balance_mode > 2) {
+        white_balance_mode = 0;
+    }
+    int highlight_mode = options == NULL ? 0 : options->highlight_mode;
+    if (highlight_mode < 0 || highlight_mode > 3) {
+        highlight_mode = 0;
+    }
+    raw->params.use_camera_wb = white_balance_mode == 0 ? 1 : 0;
+    raw->params.use_auto_wb = white_balance_mode == 1 ? 1 : 0;
+    raw->params.no_auto_bright = options == NULL ? 1 : options->no_auto_bright;
+    raw->params.highlight = highlight_mode;
+    if (options != NULL && options->use_user_black) {
+        raw->params.user_black = options->user_black;
+    }
     raw->params.output_bps = 16;
     raw->params.output_color = 1;
     raw->params.gamm[0] = 1.0;

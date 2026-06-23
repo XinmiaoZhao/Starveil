@@ -7,11 +7,24 @@ public struct SkyMaskOptions: Sendable {
     public var autoMaskMaxDimension: Int
     public var skyGuardPixels: Int
     public var featherPixels: Int
+    public var refineEdges: Bool
+    public var boundaryProtectionPixels: Int
+    public var darkForegroundPercentile: Float
 
-    public init(autoMaskMaxDimension: Int = 1600, skyGuardPixels: Int = 8, featherPixels: Int = 24) {
+    public init(
+        autoMaskMaxDimension: Int = 1600,
+        skyGuardPixels: Int = 8,
+        featherPixels: Int = 24,
+        refineEdges: Bool = true,
+        boundaryProtectionPixels: Int = 80,
+        darkForegroundPercentile: Float = 12
+    ) {
         self.autoMaskMaxDimension = autoMaskMaxDimension
         self.skyGuardPixels = skyGuardPixels
         self.featherPixels = featherPixels
+        self.refineEdges = refineEdges
+        self.boundaryProtectionPixels = boundaryProtectionPixels
+        self.darkForegroundPercentile = darkForegroundPercentile
     }
 }
 
@@ -107,6 +120,45 @@ public struct SkyMask: Sendable, Equatable {
         return out
     }
 
+    public func refinedForForegroundEdges(baseImage: FloatRGBImage, options: SkyMaskOptions = SkyMaskOptions()) -> SkyMask {
+        guard options.refineEdges,
+              hasSameShape(as: baseImage),
+              width >= 8,
+              height >= 8,
+              options.boundaryProtectionPixels > 0 else {
+            return self
+        }
+
+        let luminance = baseImage.luminance()
+        let threshold = darkForegroundThreshold(
+            luminance: luminance,
+            maskAlpha: alpha,
+            percentile: options.darkForegroundPercentile
+        )
+        let distance = distanceToGround()
+        let protectionPixels = max(1, options.boundaryProtectionPixels)
+        var candidates = Array(repeating: UInt8(0), count: pixelCount)
+
+        for pixel in 0..<pixelCount {
+            if alpha[pixel] < 128 {
+                candidates[pixel] = 1
+            } else if distance[pixel] <= protectionPixels && luminance[pixel] <= threshold {
+                candidates[pixel] = 1
+            }
+        }
+
+        let connectedGround = bottomConnectedMask(candidates: candidates, width: width, height: height)
+        guard connectedGround.contains(where: { $0 != 0 }) else {
+            return self
+        }
+
+        var refinedAlpha = alpha
+        for pixel in refinedAlpha.indices where connectedGround[pixel] != 0 {
+            refinedAlpha[pixel] = 0
+        }
+        return (try? SkyMask(width: width, height: height, alpha: refinedAlpha)) ?? self
+    }
+
     private func distanceToGround() -> [Int] {
         let infinity = width + height + 1
         var distance = Array(repeating: infinity, count: pixelCount)
@@ -139,6 +191,84 @@ public struct SkyMask: Sendable, Equatable {
         }
         return distance
     }
+}
+
+private func darkForegroundThreshold(luminance: [Float], maskAlpha: [UInt8], percentile: Float) -> Float {
+    guard !luminance.isEmpty else {
+        return 0
+    }
+
+    let step = max(1, luminance.count / 300_000)
+    var samples: [Float] = []
+    var skySamples: [Float] = []
+    samples.reserveCapacity(max(1, luminance.count / step))
+    skySamples.reserveCapacity(max(1, luminance.count / (step * 2)))
+
+    var index = 0
+    while index < luminance.count {
+        let value = luminance[index]
+        samples.append(value)
+        if maskAlpha[index] >= 128 {
+            skySamples.append(value)
+        }
+        index += step
+    }
+
+    let clippedPercentile = min(max(percentile, 0), 50)
+    let low = samples.percentile(clippedPercentile)
+    let middle = samples.percentile(55)
+    let foregroundCutoff = low + max(middle - low, 0.02) * 0.35
+
+    guard !skySamples.isEmpty else {
+        return foregroundCutoff
+    }
+
+    let skyMedian = skySamples.percentile(50)
+    let skyMargin = skyMedian > 0.01 ? max(0.005, skyMedian * 0.05) : skyMedian * 0.25
+    return min(foregroundCutoff, max(0, skyMedian - skyMargin))
+}
+
+private func bottomConnectedMask(candidates: [UInt8], width: Int, height: Int) -> [UInt8] {
+    guard candidates.count == width * height, width > 0, height > 0 else {
+        return []
+    }
+
+    var connected = Array(repeating: UInt8(0), count: candidates.count)
+    var queue: [Int] = []
+    queue.reserveCapacity(max(1, candidates.count / 4))
+
+    for x in 0..<width {
+        let index = (height - 1) * width + x
+        if candidates[index] != 0 {
+            connected[index] = 1
+            queue.append(index)
+        }
+    }
+
+    var cursor = 0
+    while cursor < queue.count {
+        let index = queue[cursor]
+        cursor += 1
+
+        let x = index % width
+        let y = index / width
+        let neighbors = [
+            x > 0 ? index - 1 : nil,
+            x + 1 < width ? index + 1 : nil,
+            y > 0 ? index - width : nil,
+            y + 1 < height ? index + width : nil
+        ]
+
+        for neighbor in neighbors {
+            guard let neighbor, candidates[neighbor] != 0, connected[neighbor] == 0 else {
+                continue
+            }
+            connected[neighbor] = 1
+            queue.append(neighbor)
+        }
+    }
+
+    return connected
 }
 
 public func autoSkyMask(for image: FloatRGBImage, options: SkyMaskOptions = SkyMaskOptions()) throws -> SkyMask {

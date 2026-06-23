@@ -7,19 +7,27 @@ public struct Shift: Sendable {
     public let peak: Float
 }
 
-public func estimateImageTransform(reference: [Float], moving: [Float], width: Int, height: Int, maxDimension: Int = 1200, skyMask: SkyMask? = nil) throws -> ImageTransform {
+public func estimateImageTransform(
+    reference: [Float],
+    moving: [Float],
+    width: Int,
+    height: Int,
+    maxDimension: Int = 1200,
+    skyMask: SkyMask? = nil,
+    alignmentModel: AlignmentModel = .conservative
+) throws -> ImageTransform {
     guard reference.count == width * height, moving.count == width * height else {
         throw MySequatorError.shapeMismatch("Reference and moving images must have matching dimensions.")
     }
     if let skyMask, skyMask.width == width, skyMask.height == height {
-        if let transform = estimateStarSimilarityTransform(reference: reference, moving: moving, width: width, height: height, skyMask: skyMask) {
+        if let transform = estimateStarSimilarityTransform(reference: reference, moving: moving, width: width, height: height, skyMask: skyMask, alignmentModel: alignmentModel) {
             return transform
         }
         if let shift = estimateStarTranslation(reference: reference, moving: moving, width: width, height: height, skyMask: skyMask) {
             return .translation(dy: shift.dy, dx: shift.dx, peak: shift.peak)
         }
     }
-    if let transform = estimateStarSimilarityTransform(reference: reference, moving: moving, width: width, height: height, skyMask: nil) {
+    if let transform = estimateStarSimilarityTransform(reference: reference, moving: moving, width: width, height: height, skyMask: nil, alignmentModel: alignmentModel) {
         return transform
     }
     let shift = try estimateTranslation(reference: reference, moving: moving, width: width, height: height, maxDimension: maxDimension, skyMask: nil)
@@ -150,7 +158,14 @@ private func estimateStarTranslation(reference: [Float], moving: [Float], width:
     return Shift(dy: refined.dy, dx: refined.dx, peak: matchRatio)
 }
 
-private func estimateStarSimilarityTransform(reference: [Float], moving: [Float], width: Int, height: Int, skyMask: SkyMask?) -> ImageTransform? {
+private func estimateStarSimilarityTransform(
+    reference: [Float],
+    moving: [Float],
+    width: Int,
+    height: Int,
+    skyMask: SkyMask?,
+    alignmentModel: AlignmentModel
+) -> ImageTransform? {
     let referenceStars = detectStarPoints(reference, width: width, height: height, skyMask: skyMask)
     let movingStars = detectStarPoints(moving, width: width, height: height, skyMask: skyMask)
     guard referenceStars.count >= 16, movingStars.count >= 16 else {
@@ -186,21 +201,38 @@ private func estimateStarSimilarityTransform(reference: [Float], moving: [Float]
         return .translation(dy: shift.dy, dx: shift.dx, peak: shift.peak)
     }
 
-    var inliers = 0
+    var inlierPairs: [(moving: StarPoint, reference: StarPoint)] = []
+    inlierPairs.reserveCapacity(pairs.count)
     for pair in pairs {
         let x = transform.a * Float(pair.moving.x) - transform.b * Float(pair.moving.y) + transform.tx
         let y = transform.b * Float(pair.moving.x) + transform.a * Float(pair.moving.y) + transform.ty
         let dx = x - Float(pair.reference.x)
         let dy = y - Float(pair.reference.y)
         if dx * dx + dy * dy <= Float(toleranceSquared) {
-            inliers += 1
+            inlierPairs.append(pair)
         }
     }
+    let inliers = inlierPairs.count
     guard inliers >= 12 else {
         return .translation(dy: shift.dy, dx: shift.dx, peak: shift.peak)
     }
     var out = transform
     out.peak = Float(inliers) / Float(min(referenceStars.count, movingStars.count))
+
+    if alignmentModel == .wideAngle,
+       inliers >= 16,
+       let polynomial = fitPolynomialInverseTransform(
+        pairs: inlierPairs,
+        width: width,
+        height: height,
+        summary: out
+       ) {
+        let residual = medianResidual(transform: polynomial, pairs: inlierPairs)
+        if residual <= Float(tolerance) {
+            return polynomial
+        }
+    }
+
     return out
 }
 
@@ -233,6 +265,136 @@ private func leastSquaresSimilarityTransform(pairs: [(moving: StarPoint, referen
     let tx = referenceMeanX - a * movingMeanX + b * movingMeanY
     let ty = referenceMeanY - b * movingMeanX - a * movingMeanY
     return ImageTransform(a: a, b: b, tx: tx, ty: ty, peak: fallback.peak)
+}
+
+private func fitPolynomialInverseTransform(
+    pairs: [(moving: StarPoint, reference: StarPoint)],
+    width: Int,
+    height: Int,
+    summary: ImageTransform
+) -> ImageTransform? {
+    let termCount = 6
+    guard pairs.count >= termCount else {
+        return nil
+    }
+
+    let scale = Float(max(width, height))
+    let centerX = Float(width) * 0.5
+    let centerY = Float(height) * 0.5
+    var rows: [[Double]] = []
+    var sourceX: [Double] = []
+    var sourceY: [Double] = []
+    rows.reserveCapacity(pairs.count)
+    sourceX.reserveCapacity(pairs.count)
+    sourceY.reserveCapacity(pairs.count)
+
+    for pair in pairs {
+        let x = (Float(pair.reference.x) - centerX) / scale
+        let y = (Float(pair.reference.y) - centerY) / scale
+        rows.append([
+            1,
+            Double(x),
+            Double(y),
+            Double(x * y),
+            Double(x * x),
+            Double(y * y)
+        ])
+        sourceX.append(Double((Float(pair.moving.x) - centerX) / scale))
+        sourceY.append(Double((Float(pair.moving.y) - centerY) / scale))
+    }
+
+    guard let xCoefficients = solveLeastSquares(rows: rows, values: sourceX),
+          let yCoefficients = solveLeastSquares(rows: rows, values: sourceY) else {
+        return nil
+    }
+
+    return ImageTransform(
+        a: summary.a,
+        b: summary.b,
+        tx: summary.tx,
+        ty: summary.ty,
+        peak: summary.peak,
+        polynomialWidth: width,
+        polynomialHeight: height,
+        polynomialXCoefficients: xCoefficients.map(Float.init),
+        polynomialYCoefficients: yCoefficients.map(Float.init)
+    )
+}
+
+private func medianResidual(transform: ImageTransform, pairs: [(moving: StarPoint, reference: StarPoint)]) -> Float {
+    var residuals: [Float] = []
+    residuals.reserveCapacity(pairs.count)
+
+    for pair in pairs {
+        guard let source = transform.sourcePoint(forDestinationX: Float(pair.reference.x), y: Float(pair.reference.y)) else {
+            continue
+        }
+        let dx = source.x - Float(pair.moving.x)
+        let dy = source.y - Float(pair.moving.y)
+        residuals.append(sqrt(dx * dx + dy * dy))
+    }
+
+    return residuals.isEmpty ? Float.greatestFiniteMagnitude : residuals.median()
+}
+
+private func solveLeastSquares(rows: [[Double]], values: [Double]) -> [Double]? {
+    let termCount = 6
+    guard rows.count >= termCount, rows.count == values.count else {
+        return nil
+    }
+
+    var normal = Array(repeating: Array(repeating: Double(0), count: termCount), count: termCount)
+    var rhs = Array(repeating: Double(0), count: termCount)
+
+    for (row, value) in zip(rows, values) {
+        for i in 0..<termCount {
+            rhs[i] += row[i] * value
+            for j in 0..<termCount {
+                normal[i][j] += row[i] * row[j]
+            }
+        }
+    }
+
+    return solveLinearSystem(matrix: normal, rhs: rhs)
+}
+
+private func solveLinearSystem(matrix: [[Double]], rhs: [Double]) -> [Double]? {
+    let count = rhs.count
+    var matrix = matrix
+    var rhs = rhs
+
+    for column in 0..<count {
+        var pivot = column
+        for row in (column + 1)..<count where abs(matrix[row][column]) > abs(matrix[pivot][column]) {
+            pivot = row
+        }
+
+        guard abs(matrix[pivot][column]) > 1e-10 else {
+            return nil
+        }
+
+        if pivot != column {
+            matrix.swapAt(pivot, column)
+            rhs.swapAt(pivot, column)
+        }
+
+        let pivotValue = matrix[column][column]
+        for index in column..<count {
+            matrix[column][index] /= pivotValue
+        }
+        rhs[column] /= pivotValue
+
+        for row in 0..<count where row != column {
+            let factor = matrix[row][column]
+            guard factor != 0 else { continue }
+            for index in column..<count {
+                matrix[row][index] -= factor * matrix[column][index]
+            }
+            rhs[row] -= factor * rhs[column]
+        }
+    }
+
+    return rhs
 }
 
 private func detectStarPoints(_ luminance: [Float], width: Int, height: Int, skyMask: SkyMask?) -> [StarPoint] {

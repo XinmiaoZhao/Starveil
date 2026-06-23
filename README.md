@@ -13,19 +13,20 @@ The first milestone focuses on the core macOS workflow:
 - import multiple star-field images
 - optional dark-frame subtraction and flat-frame correction
 - estimate star-field translation/similarity transforms from star points, with
-  phase-correlation fallback
+  phase-correlation fallback and an optional wide-angle polynomial model
 - stack aligned frames with mean, sigma-clipped mean, or star-trail max mode
 - stack only the sky while freezing the ground, or stack sky and ground in
   separate coordinate systems
-- generate, import, export, and brush-edit a sky mask in the SwiftUI GUI
+- generate, import, export, brush-edit, and edge-refine a sky mask in the
+  SwiftUI GUI
 - read RAW camera files through LibRaw, plus TIFF/JPEG/PNG/BMP
-- export 16-bit TIFF, 32-bit float TIFF, or 8-bit JPEG/PNG
+- export 16-bit TIFF, 32-bit float TIFF, float FITS, or 8-bit JPEG/PNG
 - keep output linear by default, with optional auto or HDR stretch
 - run from a SwiftUI desktop GUI or a command-line interface
 
 Advanced Sequator-style features such as high-quality automatic segmentation,
-XISF import, wide-angle distortion correction, and batch time-lapse output are
-tracked in `PROGRESS.md`.
+XISF import, local mesh/lens-profile correction, and batch time-lapse output
+are tracked in `PROGRESS.md`.
 
 ## Setup
 
@@ -92,11 +93,24 @@ Useful options:
 - `--write-sky-mask PATH`: write the generated or imported sky mask
 - `--sky-guard PX`: exclude a hard band on the sky side of the seam
 - `--mask-feather PX`: feather the sky/ground seam inward into the sky
+- `--no-refine-sky-mask`: trust the current sky mask without edge refinement
+- `--boundary-protection PX`: choose how far from the seam dark connected
+  foreground can be absorbed into the ground mask
+- `--alignment conservative|wide-angle`: choose the normal similarity model or
+  a second-order polynomial model for wide lenses and longer sequences
+- `--raw-white-balance camera|auto|none`: choose LibRaw white-balance handling
+- `--raw-auto-bright` / `--no-raw-auto-bright`: enable or disable LibRaw
+  automatic brightening; disabled by default for linear stacking
+- `--raw-highlight clip|unclip|blend|rebuild`: choose LibRaw highlight handling
+- `--raw-black-level VALUE`: override the LibRaw black level
 - `--stretch none|auto|hdr`: choose linear output or a display stretch
 - `--linear-master`: force linear processing and 32-bit float TIFF output
 - `--tiff-depth uint16|float32`: choose TIFF output depth
 - `--reduce-light-pollution`: subtract a broad low-frequency background
 - `--enhance-stars`: apply a mild star/detail boost
+
+Use a `.fit`, `.fits`, or `.fts` output path when you want a 32-bit float RGB
+FITS cube instead of TIFF.
 
 Example sky-only stack with frozen ground:
 
@@ -158,19 +172,22 @@ XISF files to 16-bit TIFF before stacking.
 
 ## Current limitations
 
-- Alignment supports translation and a conservative similarity transform.
-  Long sequences, very wide lenses, or strong field rotation still need a
-  future mesh/local warp module.
-- Automatic sky masks are a first-pass estimate. Complex horizons, trees, and
-  buildings should be corrected with the GUI brush/erase tools or an imported
-  mask.
+- Alignment supports translation, a conservative similarity transform, and an
+  optional wide-angle polynomial model. Ultra-wide sequences with strong local
+  distortion still need a future mesh/lens-aware warp module.
+- Automatic sky masks include edge refinement for dark connected foreground
+  near the seam. Very complex horizons, trees, and buildings may still need the
+  GUI brush/erase tools or an imported mask.
 - RAW loading uses LibRaw with camera white balance, no automatic brightening,
-  16-bit decode, and linear gamma before the internal float pipeline.
+  16-bit decode, and linear gamma by default. White balance, highlight handling,
+  auto brightening, and black level are user-configurable first-pass controls.
 - Lightroom can edit exported TIFF files, but those files do not re-enter
   Adobe's original RAW processing pipeline.
 - XISF files should be converted to 16-bit TIFF in PixInsight first.
-- Star-trail mode is currently full-frame only; it is disabled for sky/ground
-  scene modes.
+- Star-trail mode works for full-frame and sky-freeze-ground scene modes. It is
+  still disabled for separate sky/ground stacking.
+- The pipeline reports an estimated working-memory footprint, but sigma
+  stacking still keeps frame data in memory rather than using chunked streaming.
 
 ## Project docs
 

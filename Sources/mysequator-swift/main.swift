@@ -13,6 +13,13 @@ struct CLIOptions {
     var writeSkyMask: URL?
     var skyGuardPixels = 8
     var maskFeatherPixels = 24
+    var refineSkyMask = true
+    var boundaryProtectionPixels = 80
+    var alignmentModel: AlignmentModel = .conservative
+    var rawWhiteBalanceMode: RawWhiteBalanceMode = .camera
+    var rawNoAutoBrightness = true
+    var rawHighlightMode: RawHighlightMode = .clip
+    var rawBlackLevel: Int?
     var sigma: Float = 2.2
     var stretch: OutputStretch = .none
     var reduceLightPollution = false
@@ -38,6 +45,14 @@ func printUsage() {
       --write-sky-mask PATH
       --sky-guard PX
       --mask-feather PX
+      --no-refine-sky-mask               Trust the mask exactly in sky/ground modes
+      --boundary-protection PX
+      --alignment conservative|wide-angle
+      --raw-white-balance camera|auto|none
+      --raw-auto-bright                  Allow LibRaw automatic brightening
+      --no-raw-auto-bright               Disable LibRaw automatic brightening
+      --raw-highlight clip|unclip|blend|rebuild
+      --raw-black-level VALUE
       --sigma VALUE
       --stretch none|auto|hdr
       --reduce-light-pollution
@@ -110,6 +125,44 @@ func parseArguments(_ args: [String]) throws -> CLIOptions {
                 throw MySequatorError.invalidOption("Invalid mask feather.")
             }
             options.maskFeatherPixels = value
+        case "--no-refine-sky-mask":
+            options.refineSkyMask = false
+        case "--boundary-protection":
+            guard let value = Int(try requireValue()), value >= 0 else {
+                throw MySequatorError.invalidOption("Invalid boundary protection.")
+            }
+            options.boundaryProtectionPixels = value
+        case "--alignment":
+            let value = try requireValue()
+            switch value {
+            case "conservative":
+                options.alignmentModel = .conservative
+            case "wide-angle", "wideAngle":
+                options.alignmentModel = .wideAngle
+            default:
+                throw MySequatorError.invalidOption("Unknown alignment model: \(value).")
+            }
+        case "--raw-white-balance":
+            let value = try requireValue()
+            guard let mode = RawWhiteBalanceMode(rawValue: value) else {
+                throw MySequatorError.invalidOption("Unknown RAW white balance mode: \(value).")
+            }
+            options.rawWhiteBalanceMode = mode
+        case "--raw-auto-bright":
+            options.rawNoAutoBrightness = false
+        case "--no-raw-auto-bright":
+            options.rawNoAutoBrightness = true
+        case "--raw-highlight":
+            let value = try requireValue()
+            guard let mode = RawHighlightMode(rawValue: value) else {
+                throw MySequatorError.invalidOption("Unknown RAW highlight mode: \(value).")
+            }
+            options.rawHighlightMode = mode
+        case "--raw-black-level":
+            guard let value = Int(try requireValue()), value >= 0, value <= Int(Int32.max) else {
+                throw MySequatorError.invalidOption("Invalid RAW black level.")
+            }
+            options.rawBlackLevel = value
         case "--sigma":
             guard let value = Float(try requireValue()) else {
                 throw MySequatorError.invalidOption("Invalid sigma.")
@@ -172,6 +225,12 @@ do {
     }
 
     let skyMask = try cli.skyMask.map(loadSkyMask)
+    let rawOptions = RawProcessingOptions(
+        whiteBalanceMode: cli.rawWhiteBalanceMode,
+        noAutoBrightness: cli.rawNoAutoBrightness,
+        highlightMode: cli.rawHighlightMode,
+        userBlackLevel: cli.rawBlackLevel
+    )
     let options = StackOptions(
         mode: cli.mode,
         sceneMode: cli.sceneMode,
@@ -179,13 +238,20 @@ do {
         darkPaths: cli.darks,
         flatPaths: cli.flats,
         skyMask: skyMask,
-        skyMaskOptions: SkyMaskOptions(skyGuardPixels: cli.skyGuardPixels, featherPixels: cli.maskFeatherPixels),
+        skyMaskOptions: SkyMaskOptions(
+            skyGuardPixels: cli.skyGuardPixels,
+            featherPixels: cli.maskFeatherPixels,
+            refineEdges: cli.refineSkyMask,
+            boundaryProtectionPixels: cli.boundaryProtectionPixels
+        ),
         outputStretch: cli.stretch,
         reduceLightPollution: cli.reduceLightPollution,
         lightPollutionStrength: cli.lightPollutionStrength,
         enhanceStars: cli.enhanceStars,
         starEnhancementStrength: cli.starEnhancementStrength,
         sigma: cli.sigma,
+        alignmentModel: cli.alignmentModel,
+        rawOptions: rawOptions,
         linearMaster: cli.linearMaster
     )
 

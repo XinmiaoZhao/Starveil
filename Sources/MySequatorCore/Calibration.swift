@@ -1,8 +1,8 @@
 import Foundation
 
-func medianFrame(_ paths: [URL]) throws -> FloatRGBImage? {
+func medianFrame(_ paths: [URL], rawOptions: RawProcessingOptions = RawProcessingOptions()) throws -> FloatRGBImage? {
     guard !paths.isEmpty else { return nil }
-    let frames = try paths.map(loadImage)
+    let frames = try paths.map { try loadImage($0, rawOptions: rawOptions) }
     try assertSameShape(frames)
 
     var output = FloatRGBImage(width: frames[0].width, height: frames[0].height)

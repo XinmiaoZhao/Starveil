@@ -15,15 +15,15 @@ public let rawExtensions: Set<String> = [
 ]
 
 public let supportedExtensions: Set<String> = rasterExtensions.union(rawExtensions)
-public let outputExtensions: Set<String> = ["tif", "tiff", "jpg", "jpeg", "png"]
+public let outputExtensions: Set<String> = ["tif", "tiff", "jpg", "jpeg", "png", "fit", "fits", "fts"]
 
-public func loadImage(_ url: URL) throws -> FloatRGBImage {
+public func loadImage(_ url: URL, rawOptions: RawProcessingOptions = RawProcessingOptions()) throws -> FloatRGBImage {
     let ext = url.pathExtension.lowercased()
     guard supportedExtensions.contains(ext) else {
         throw MySequatorError.unsupportedImageType("Unsupported image type: \(url.lastPathComponent)")
     }
     if rawExtensions.contains(ext) {
-        return try loadRawImage(url)
+        return try loadRawImage(url, options: rawOptions)
     }
     if ext == "tif" || ext == "tiff" {
         return try loadTIFFImage(url)
@@ -41,15 +41,25 @@ public func saveImage(_ image: FloatRGBImage, to url: URL, options: SaveOptions 
         try saveRaster8(image.clipped(), to: url, type: UTType.jpeg.identifier, quality: 0.95)
     case "png":
         try saveRaster8(image.clipped(), to: url, type: UTType.png.identifier, quality: nil)
+    case "fit", "fits", "fts":
+        try saveFITS(image, to: url, options: options)
     default:
-        throw MySequatorError.unsupportedImageType("Output must end with .tif, .tiff, .jpg, .jpeg, or .png.")
+        throw MySequatorError.unsupportedImageType("Output must end with .tif, .tiff, .jpg, .jpeg, .png, .fit, .fits, or .fts.")
     }
 }
 
-private func loadRawImage(_ url: URL) throws -> FloatRGBImage {
+private func loadRawImage(_ url: URL, options: RawProcessingOptions) throws -> FloatRGBImage {
     var cImage = MSQFloatRGBImage()
+    let blackLevel = options.userBlackLevel.map { min(max($0, 0), Int(Int32.max)) }
+    var cOptions = MSQRawDecodeOptions(
+        white_balance_mode: rawWhiteBalanceValue(options.whiteBalanceMode),
+        no_auto_bright: options.noAutoBrightness ? 1 : 0,
+        highlight_mode: options.highlightMode.libRawValue,
+        use_user_black: blackLevel == nil ? 0 : 1,
+        user_black: Int32(blackLevel ?? 0)
+    )
     let result = url.path.withCString { path in
-        msq_load_raw_linear_rgb(path, &cImage)
+        msq_load_raw_linear_rgb_with_options(path, &cOptions, &cImage)
     }
     defer { msq_free_float_rgb_image(&cImage) }
     guard result == 0, cImage.data != nil, cImage.width > 0, cImage.height > 0 else {
@@ -59,6 +69,17 @@ private func loadRawImage(_ url: URL) throws -> FloatRGBImage {
     let count = Int(cImage.width) * Int(cImage.height) * 3
     let buffer = UnsafeBufferPointer(start: cImage.data, count: count)
     return try FloatRGBImage(width: Int(cImage.width), height: Int(cImage.height), data: Array(buffer))
+}
+
+private func rawWhiteBalanceValue(_ mode: RawWhiteBalanceMode) -> Int32 {
+    switch mode {
+    case .camera:
+        return 0
+    case .auto:
+        return 1
+    case .none:
+        return 2
+    }
 }
 
 private func loadTIFFImage(_ url: URL) throws -> FloatRGBImage {
@@ -166,5 +187,75 @@ private func saveRaster8(_ image: FloatRGBImage, to url: URL, type: String, qual
     CGImageDestinationAddImage(destination, cgImage, properties as CFDictionary)
     guard CGImageDestinationFinalize(destination) else {
         throw MySequatorError.saveFailed("Failed writing \(url.lastPathComponent).")
+    }
+}
+
+private func saveFITS(_ image: FloatRGBImage, to url: URL, options: SaveOptions) throws {
+    let imageData = options.clip ? image.clipped().data : image.data
+    var data = Data()
+    let headerCards = [
+        fitsCard(keyword: "SIMPLE", value: "T", comment: "conforms to FITS standard"),
+        fitsCard(keyword: "BITPIX", value: "-32", comment: "32-bit floating point"),
+        fitsCard(keyword: "NAXIS", value: "3", comment: "RGB image cube"),
+        fitsCard(keyword: "NAXIS1", value: "\(image.width)", comment: "width"),
+        fitsCard(keyword: "NAXIS2", value: "\(image.height)", comment: "height"),
+        fitsCard(keyword: "NAXIS3", value: "3", comment: "RGB channels"),
+        fitsCard(keyword: "EXTEND", value: "T", comment: nil),
+        fitsCard(keyword: "BZERO", value: "0.0", comment: nil),
+        fitsCard(keyword: "BSCALE", value: "1.0", comment: nil),
+        fitsComment("Linear stacked data from MySequator"),
+        fitsEndCard()
+    ]
+
+    for card in headerCards {
+        guard let encoded = card.data(using: .ascii) else {
+            throw MySequatorError.saveFailed("Unable to encode FITS header.")
+        }
+        data.append(encoded)
+    }
+    padFITSBlock(&data, byte: UInt8(ascii: " "))
+
+    for channel in 0..<3 {
+        for pixel in 0..<image.pixelCount {
+            let value = imageData[pixel * 3 + channel]
+            data.appendBigEndianFloat(value.isFinite ? value : 0)
+        }
+    }
+    padFITSBlock(&data, byte: 0)
+
+    do {
+        try data.write(to: url, options: .atomic)
+    } catch {
+        throw MySequatorError.saveFailed("Failed writing \(url.lastPathComponent): \(error.localizedDescription)")
+    }
+}
+
+private func fitsCard(keyword: String, value: String, comment: String?) -> String {
+    let base = keyword.padding(toLength: 8, withPad: " ", startingAt: 0) + "= " + value
+    let withComment = comment.map { "\(base) / \($0)" } ?? base
+    return String(withComment.prefix(80)).padding(toLength: 80, withPad: " ", startingAt: 0)
+}
+
+private func fitsComment(_ comment: String) -> String {
+    String("COMMENT \(comment)".prefix(80)).padding(toLength: 80, withPad: " ", startingAt: 0)
+}
+
+private func fitsEndCard() -> String {
+    "END".padding(toLength: 80, withPad: " ", startingAt: 0)
+}
+
+private func padFITSBlock(_ data: inout Data, byte: UInt8) {
+    let remainder = data.count % 2880
+    if remainder > 0 {
+        data.append(contentsOf: Array(repeating: byte, count: 2880 - remainder))
+    }
+}
+
+private extension Data {
+    mutating func appendBigEndianFloat(_ value: Float) {
+        var bits = value.bitPattern.bigEndian
+        Swift.withUnsafeBytes(of: &bits) {
+            append(contentsOf: $0)
+        }
     }
 }
