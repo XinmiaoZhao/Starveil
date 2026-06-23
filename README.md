@@ -61,6 +61,24 @@ For repeated large RAW stacks, a release run is still recommended:
 swift run -c release MySequatorApp
 ```
 
+## Install the Launchpad App
+
+The user-facing macOS app is named **Starveil**. Run this after each software
+update to rebuild the release app bundle and refresh the Launchpad install:
+
+```bash
+./scripts/install_starveil_app.sh
+```
+
+The script installs `Starveil.app` to `~/Applications`, which Launchpad indexes.
+If an older `Starveil.app` is already installed, it is moved into
+`AppBackups/PreviousLaunchpadBuild-YYYYMMDD-HHMMSS.app` in this working
+directory before the new version is installed. The backup app is intentionally
+not named `Starveil.app`.
+
+The app icon source is `Resources/StarveilAppIcon.png`; the packaged icon is
+`Resources/AppIcon.icns`.
+
 ## Run the Swift CLI
 
 ```bash

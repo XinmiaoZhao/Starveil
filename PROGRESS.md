@@ -199,6 +199,19 @@ Sources:
   mode.
 - Added XCTest coverage for RAW defaults and memory-estimate scaling.
 
+## Desktop App Packaging
+
+- Added a user-facing macOS app identity named **Starveil** while keeping the
+  internal SwiftPM product names stable.
+- Generated a Starveil app icon with the built-in image-generation model and
+  stored the project asset under `Resources/`.
+- Added `scripts/install_starveil_app.sh` to build the release SwiftUI app,
+  package it as `Starveil.app`, install it to `~/Applications` for Launchpad,
+  and register it with Launch Services.
+- The installer preserves any previous Launchpad install under
+  `AppBackups/PreviousLaunchpadBuild-YYYYMMDD-HHMMSS.app`. Backups are not
+  named `Starveil.app`, and `AppBackups/` is ignored by Git.
+
 ## Known Limitations
 
 - Alignment handles translation, conservative similarity transforms, and an
@@ -229,4 +242,5 @@ Sources:
 3. Extend star-trail support to separate sky/ground stacking if the desired
    compositing behavior is defined.
 4. Add time-lapse batch mode.
-5. Build a signed/distributable `.app` package once the workflow stabilizes.
+5. Build a notarized distributable `.app` or `.dmg` package once the workflow
+   stabilizes.

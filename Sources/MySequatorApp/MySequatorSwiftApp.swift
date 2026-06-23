@@ -16,7 +16,7 @@ struct MySequatorSwiftApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     var body: some Scene {
-        WindowGroup("MySequator") {
+        WindowGroup("Starveil") {
             ContentView()
                 .frame(minWidth: 980, minHeight: 620)
         }

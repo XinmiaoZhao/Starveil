@@ -7,10 +7,12 @@ __pycache__/
 test_pics/
 dist/
 build/
+AppBackups/
 *.egg-info/
 *.tif
 *.tiff
 *.jpg
 *.jpeg
 *.png
+!Resources/*.png
 !tests/fixtures/**/*.png
