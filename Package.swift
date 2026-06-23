@@ -10,7 +10,7 @@ let condaLib = "\(packageRoot)/.conda/lib"
 let package = Package(
     name: "MySequator",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .library(name: "MySequatorCore", targets: ["MySequatorCore"]),

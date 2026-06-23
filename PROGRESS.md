@@ -211,6 +211,12 @@ Sources:
 - The installer preserves any previous Launchpad install under
   `AppBackups/PreviousLaunchpadBuild-YYYYMMDD-HHMMSS.app`. Backups are not
   named `Starveil.app`, and `AppBackups/` is ignored by Git.
+- Raised the SwiftUI app minimum to macOS 14 and rebuilt the Starveil UI around
+  native `NavigationSplitView` plus a right-side Settings inspector.
+- Moved the crowded left-column controls into collapsible inspector sections:
+  Session, Stack, Output Advanced, RAW, Sky Mask, and Post-processing. The left
+  sidebar now stays focused on image selection, calibration counts, progress,
+  and status.
 
 ## Known Limitations
 

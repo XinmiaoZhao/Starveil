@@ -30,7 +30,8 @@ are tracked in `PROGRESS.md`.
 
 ## Setup
 
-Install Xcode and select it as the active developer directory:
+Install Xcode and select it as the active developer directory. The SwiftUI GUI
+and packaged Starveil app now require macOS 14 or newer.
 
 ```bash
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
@@ -54,6 +55,10 @@ conda env update -p ./.conda -f environment.yml --prune
 ```bash
 swift run MySequatorApp
 ```
+
+The GUI uses a native three-column macOS layout: image/session controls in the
+left sidebar, the preview and mask canvas in the center, and stack/output/RAW
+settings in the right Settings inspector.
 
 For repeated large RAW stacks, a release run is still recommended:
 
