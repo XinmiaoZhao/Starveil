@@ -75,25 +75,15 @@ struct SidebarView: View {
 
 struct PreviewCanvasView: View {
     @ObservedObject var model: AppModel
+    @State private var isPaintingMask = false
+    @State private var brushPreviewLocation: CGPoint?
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 Color(nsColor: .textBackgroundColor)
                 if let preview = model.preview {
-                    Image(nsImage: preview)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    if model.showMaskOverlay,
-                       let maskOverlay = model.maskOverlay,
-                       model.sceneMode != .fullFrame {
-                        Image(nsImage: maskOverlay)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .allowsHitTesting(false)
-                    }
+                    previewCanvas(preview, availableSize: proxy.size)
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "sparkles")
@@ -106,16 +96,110 @@ struct PreviewCanvasView: View {
                     .foregroundStyle(.secondary)
                 }
             }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        model.paintMask(at: value.location, in: proxy.size)
-                    }
-            )
             .clipShape(RoundedRectangle(cornerRadius: 8))
         }
         .padding(12)
+    }
+
+    private func previewCanvas(_ preview: NSImage, availableSize: CGSize) -> some View {
+        let contentSize = previewContentSize(in: availableSize)
+
+        return ScrollView([.horizontal, .vertical]) {
+            ZStack {
+                Image(nsImage: preview)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: contentSize.width, height: contentSize.height)
+                if model.showMaskOverlay,
+                   let maskOverlay = model.maskOverlay,
+                   model.sceneMode != .fullFrame {
+                    Image(nsImage: maskOverlay)
+                        .resizable()
+                        .interpolation(.none)
+                        .frame(width: contentSize.width, height: contentSize.height)
+                        .allowsHitTesting(false)
+                }
+                brushCursor(in: contentSize)
+            }
+            .frame(width: contentSize.width, height: contentSize.height)
+            .contentShape(Rectangle())
+            .gesture(maskDragGesture(in: contentSize))
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    brushPreviewLocation = location
+                case .ended:
+                    brushPreviewLocation = nil
+                }
+            }
+            .frame(minWidth: availableSize.width, minHeight: availableSize.height)
+        }
+    }
+
+    private func previewContentSize(in availableSize: CGSize) -> CGSize {
+        let pixelSize = model.previewPixelSize
+        guard pixelSize.width > 0, pixelSize.height > 0 else {
+            return CGSize(width: max(1, availableSize.width), height: max(1, availableSize.height))
+        }
+
+        let fitScale = min(
+            max(1, availableSize.width) / pixelSize.width,
+            max(1, availableSize.height) / pixelSize.height
+        )
+        let scale = max(0.01, fitScale * CGFloat(model.previewZoom))
+        return CGSize(width: pixelSize.width * scale, height: pixelSize.height * scale)
+    }
+
+    private func maskDragGesture(in imageViewSize: CGSize) -> some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .local)
+            .onChanged { value in
+                let erasing = isErasingModifierActive
+                brushPreviewLocation = value.location
+                if isPaintingMask {
+                    _ = model.continueMaskStroke(
+                        atImageLocation: value.location,
+                        imageViewSize: imageViewSize,
+                        erasing: erasing
+                    )
+                } else {
+                    isPaintingMask = model.beginMaskStroke(
+                        atImageLocation: value.location,
+                        imageViewSize: imageViewSize,
+                        erasing: erasing
+                    )
+                }
+            }
+            .onEnded { _ in
+                isPaintingMask = false
+                model.endMaskStroke()
+            }
+    }
+
+    @ViewBuilder
+    private func brushCursor(in imageViewSize: CGSize) -> some View {
+        if let location = brushPreviewLocation,
+           let mask = model.skyMask,
+           model.sceneMode != .fullFrame,
+           mask.width > 0 {
+            let radius = max(2, CGFloat(model.brushSize) * imageViewSize.width / CGFloat(mask.width))
+            let erasing = isErasingModifierActive || model.maskTool == .eraseGround
+            Circle()
+                .fill(Color.white.opacity(0.06))
+                .overlay(
+                    Circle()
+                        .stroke(erasing ? Color.orange : Color.cyan, lineWidth: 1.5)
+                )
+                .frame(width: radius * 2, height: radius * 2)
+                .position(
+                    x: min(max(location.x, 0), imageViewSize.width),
+                    y: min(max(location.y, 0), imageViewSize.height)
+                )
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var isErasingModifierActive: Bool {
+        NSEvent.modifierFlags.contains(.option)
     }
 }
 
@@ -245,7 +329,7 @@ struct SettingsInspectorView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Button("Auto Mask", action: model.generateAutoMask)
+                    Button("Generate Auto Mask", action: model.generateAutoMask)
                         .disabled(model.imagePaths.isEmpty || model.isMasking || model.sceneMode == .fullFrame)
                     Button("Import", action: model.importSkyMask)
                         .disabled(model.sceneMode == .fullFrame)
@@ -253,11 +337,20 @@ struct SettingsInspectorView: View {
                         .disabled(model.skyMask == nil)
                 }
                 HStack {
-                    Button("Refine", action: model.refineSkyMask)
+                    Button("Refine Edges", action: model.refineSkyMask)
                         .disabled(model.skyMask == nil || model.imagePaths.isEmpty || model.isMasking)
                     Button("Clear", action: model.clearSkyMask)
                         .disabled(model.skyMask == nil)
                     Button("Invert", action: model.invertSkyMask)
+                        .disabled(model.skyMask == nil)
+                }
+                HStack {
+                    Button("Undo", action: model.undoMaskEdit)
+                        .disabled(!model.canUndoMask)
+                    Button("Redo", action: model.redoMaskEdit)
+                        .disabled(!model.canRedoMask)
+                    Spacer()
+                    Button("Switch Tool", action: model.toggleMaskTool)
                         .disabled(model.skyMask == nil)
                 }
                 Toggle("Show overlay", isOn: $model.showMaskOverlay)
@@ -266,7 +359,11 @@ struct SettingsInspectorView: View {
                         Text(tool.displayName).tag(tool)
                     }
                 }
+                .pickerStyle(.segmented)
                 sliderRow("Brush", value: $model.brushSize, range: 4...200, suffix: "px")
+                Text("Option-drag temporarily erases ground. Cmd-Z / Cmd-Shift-Z undo mask edits; Cmd+=, Cmd+-, and Cmd+0 control preview zoom.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 sliderRow("Guard", value: $model.skyGuardPixels, range: 0...64, suffix: "px")
                 sliderRow("Feather", value: $model.maskFeatherPixels, range: 0...160, suffix: "px")
                 Toggle("Refine edges", isOn: $model.refineSkyMaskEdges)

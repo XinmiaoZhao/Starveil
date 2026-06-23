@@ -101,6 +101,27 @@ final class SkyGroundTests: XCTestCase {
         XCTAssertEqual(warped.0[0, 1, 1], 0, accuracy: 0.001)
     }
 
+    func testWarpImageWithMaskRejectsAnyMaskedBilinearTap() throws {
+        var image = FloatRGBImage(width: 5, height: 5)
+        for y in 0..<5 {
+            for x in 0..<5 {
+                image[x, y, 0] = Float(x)
+                image[x, y, 1] = Float(y)
+                image[x, y, 2] = 1
+            }
+        }
+        var mask = Array(repeating: UInt8(1), count: 25)
+        mask[1 * 5 + 2] = 0
+
+        let transform = ImageTransform(a: 1, b: 0, tx: -0.4, ty: 0)
+        let warped = warpImageWithMask(image, transform: transform, sourceMask: mask)
+
+        XCTAssertEqual(warped.1[1 * 5 + 1], 0)
+        XCTAssertEqual(warped.0[1, 1, 0], 0, accuracy: 0.001)
+        XCTAssertEqual(warped.1[3 * 5 + 1], 1)
+        XCTAssertEqual(warped.0[1, 3, 0], Float(1.4), accuracy: 0.001)
+    }
+
     func testSkyFreezeGroundKeepsGroundFromBaseAndAlignsSky() throws {
         let temp = try temporaryDirectory()
         let fixture = try makeSkyGroundFixture()

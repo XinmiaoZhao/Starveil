@@ -154,8 +154,8 @@ Sources:
 - Added `AlignmentModel` with conservative and wide-angle modes.
 - Implemented an optional second-order polynomial inverse warp for wide-angle
   star alignment when the star matcher finds enough inliers.
-- Kept the conservative similarity/translation path as the default alignment
-  behavior.
+- Kept the conservative similarity/translation path as the default core and CLI
+  alignment behavior.
 - Added CLI and SwiftUI alignment controls:
   - `--alignment conservative|wide-angle`
   - GUI `Alignment` picker
@@ -198,6 +198,29 @@ Sources:
   for the current stack dimensions, frame count, composition mode, and scene
   mode.
 - Added XCTest coverage for RAW defaults and memory-estimate scaling.
+
+## Post-v0.7 Mask and UI Fixes
+
+- Fixed sky/ground boundary bleed in non-integer sky warps. Masked bilinear
+  sampling now rejects an output pixel unless all four source taps are inside
+  the sky source mask, preventing ground pixels from being interpolated into
+  aligned sky near the seam.
+- Added an XCTest regression for the masked bilinear edge case where the nearest
+  source pixel is sky but a neighboring interpolation tap is ground.
+- Updated the Starveil GUI default alignment model to `wideAngle` after testing
+  showed conservative similarity alignment can stretch edge stars on broad RAW
+  landscape sequences. The conservative model remains selectable in Settings,
+  and the core/CLI default stays conservative for compatibility.
+- Improved mask editing in the SwiftUI preview canvas:
+  - visible brush footprint under the pointer,
+  - continuous interpolated strokes for fast drags,
+  - Option-drag temporary ground erasing,
+  - mask undo/redo with Cmd-Z and Cmd-Shift-Z,
+  - preview zoom with Cmd+=, Cmd+-, and Cmd+0.
+- Removed the destructive `Auto Mask` action from the top toolbar and renamed
+  the inspector action to `Generate Auto Mask`, so manual masks are less likely
+  to be overwritten accidentally. Auto/import/refine/clear/invert and brush
+  strokes are now undoable.
 
 ## Desktop App Packaging
 

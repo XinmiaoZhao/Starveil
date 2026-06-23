@@ -60,6 +60,14 @@ The GUI uses a native three-column macOS layout: image/session controls in the
 left sidebar, the preview and mask canvas in the center, and stack/output/RAW
 settings in the right Settings inspector.
 
+The preview canvas supports mask-painting aids for sky/ground work: the brush
+footprint is shown under the pointer, fast drags are interpolated into a
+continuous stroke, Option-drag temporarily erases ground, Cmd-Z and
+Cmd-Shift-Z undo and redo mask edits, and Cmd+= / Cmd+- / Cmd+0 control zoom.
+The Starveil GUI defaults to the wide-angle alignment model because broad
+landscape star fields often need the polynomial warp near frame edges; the
+conservative model remains available in Settings.
+
 For repeated large RAW stacks, a release run is still recommended:
 
 ```bash
@@ -201,6 +209,9 @@ XISF files to 16-bit TIFF before stacking.
 - Automatic sky masks include edge refinement for dark connected foreground
   near the seam. Very complex horizons, trees, and buildings may still need the
   GUI brush/erase tools or an imported mask.
+- Sky/ground compositing keeps masked bilinear warp samples strictly inside the
+  sky source mask to avoid ground bleeding into aligned sky pixels near the
+  seam. Guard and feather settings still control the final transition width.
 - RAW loading uses LibRaw with camera white balance, no automatic brightening,
   16-bit decode, and linear gamma by default. White balance, highlight handling,
   auto brightening, and black level are user-configurable first-pass controls.

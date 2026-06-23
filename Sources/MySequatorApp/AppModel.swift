@@ -101,7 +101,7 @@ final class AppModel: ObservableObject {
     @Published var maskFeatherPixels = 24.0
     @Published var refineSkyMaskEdges = true
     @Published var boundaryProtectionPixels = 80.0
-    @Published var alignmentModel: AlignmentModel = .conservative
+    @Published var alignmentModel: AlignmentModel = .wideAngle
     @Published var rawWhiteBalanceMode: RawWhiteBalanceMode = .camera
     @Published var rawAutoBrightness = false
     @Published var rawHighlightMode: RawHighlightMode = .clip
@@ -127,9 +127,17 @@ final class AppModel: ObservableObject {
     @Published var isStacking = false
     @Published var isMasking = false
     @Published var previewPixelSize = CGSize(width: 1, height: 1)
+    @Published var previewZoom = 1.0
+    @Published private(set) var canUndoMask = false
+    @Published private(set) var canRedoMask = false
     private var previewCache: [URL: NSImage] = [:]
     private var previewSizeCache: [URL: CGSize] = [:]
     private var previewTask: Task<Void, Never>?
+    private var maskUndoStack: [SkyMask?] = []
+    private var maskRedoStack: [SkyMask?] = []
+    private let maxMaskHistoryDepth = 40
+    private var activeMaskStrokePoint: CGPoint?
+    private var activeMaskStrokeValue: UInt8?
 
     func chooseImages() {
         let panel = NSOpenPanel()
@@ -278,8 +286,7 @@ final class AppModel: ObservableObject {
                     }
                 }.value
                 if let generatedMask = result.skyMask {
-                    skyMask = generatedMask
-                    refreshMaskOverlay()
+                    replaceSkyMask(generatedMask, undoable: true)
                 }
                 try await Task.detached {
                     try saveImage(result.image, to: output, options: saveOptions)
@@ -320,8 +327,7 @@ final class AppModel: ObservableObject {
                     return try autoSkyMask(for: image, options: options)
                         .refinedForForegroundEdges(baseImage: image, options: options)
                 }.value
-                skyMask = mask
-                refreshMaskOverlay()
+                replaceSkyMask(mask, undoable: true)
                 status = "Sky mask ready."
             } catch {
                 status = "Sky mask failed: \(error.localizedDescription)"
@@ -356,8 +362,7 @@ final class AppModel: ObservableObject {
                     let image = try loadImage(url, rawOptions: rawOptions)
                     return mask.refinedForForegroundEdges(baseImage: image, options: options)
                 }.value
-                skyMask = refined
-                refreshMaskOverlay()
+                replaceSkyMask(refined, undoable: true)
                 status = "Sky mask refined."
             } catch {
                 status = "Mask refine failed: \(error.localizedDescription)"
@@ -379,8 +384,7 @@ final class AppModel: ObservableObject {
                     let mask = try await Task.detached {
                         try loadSkyMask(url)
                     }.value
-                    skyMask = mask
-                    refreshMaskOverlay()
+                    replaceSkyMask(mask, undoable: true)
                     status = "Imported sky mask \(url.lastPathComponent)."
                 } catch {
                     status = "Mask import failed: \(error.localizedDescription)"
@@ -416,29 +420,93 @@ final class AppModel: ObservableObject {
     func clearSkyMask() {
         guard var mask = skyMask else { return }
         mask.clear(to: 0)
-        skyMask = mask
-        refreshMaskOverlay()
+        replaceSkyMask(mask, undoable: true)
+        status = "Sky mask cleared."
     }
 
     func invertSkyMask() {
         guard var mask = skyMask else { return }
         mask.invert()
-        skyMask = mask
-        refreshMaskOverlay()
+        replaceSkyMask(mask, undoable: true)
+        status = "Sky mask inverted."
     }
 
-    func paintMask(at location: CGPoint, in viewSize: CGSize) {
-        guard sceneMode != .fullFrame, var mask = skyMask else { return }
-        let rect = fittedPreviewRect(in: viewSize)
-        guard rect.contains(location), rect.width > 0, rect.height > 0 else { return }
-        let nx = (location.x - rect.minX) / rect.width
-        let ny = (location.y - rect.minY) / rect.height
-        let x = min(max(Int((nx * CGFloat(mask.width)).rounded()), 0), mask.width - 1)
-        let y = min(max(Int((ny * CGFloat(mask.height)).rounded()), 0), mask.height - 1)
+    @discardableResult
+    func beginMaskStroke(atImageLocation location: CGPoint, imageViewSize: CGSize, erasing: Bool) -> Bool {
+        guard sceneMode != .fullFrame, var mask = skyMask else { return false }
+        guard let point = maskPoint(forImageLocation: location, imageViewSize: imageViewSize, mask: mask) else {
+            return false
+        }
+
+        pushMaskUndoSnapshot()
+        let value = erasing ? MaskTool.eraseGround.paintValue : maskTool.paintValue
+        activeMaskStrokePoint = point
+        activeMaskStrokeValue = value
         let radius = max(1, Int(brushSize.rounded()))
-        mask.paint(centerX: x, centerY: y, radius: radius, value: maskTool.paintValue)
+        mask.paint(centerX: Int(point.x.rounded()), centerY: Int(point.y.rounded()), radius: radius, value: value)
         skyMask = mask
         refreshMaskOverlay()
+        return true
+    }
+
+    @discardableResult
+    func continueMaskStroke(atImageLocation location: CGPoint, imageViewSize: CGSize, erasing: Bool) -> Bool {
+        guard sceneMode != .fullFrame, var mask = skyMask else { return false }
+        guard let point = maskPoint(forImageLocation: location, imageViewSize: imageViewSize, mask: mask) else {
+            return false
+        }
+        guard let previousPoint = activeMaskStrokePoint else {
+            return beginMaskStroke(atImageLocation: location, imageViewSize: imageViewSize, erasing: erasing)
+        }
+
+        let value = activeMaskStrokeValue ?? (erasing ? MaskTool.eraseGround.paintValue : maskTool.paintValue)
+        paintMaskSegment(&mask, from: previousPoint, to: point, value: value)
+        activeMaskStrokePoint = point
+        skyMask = mask
+        refreshMaskOverlay()
+        return true
+    }
+
+    func endMaskStroke() {
+        activeMaskStrokePoint = nil
+        activeMaskStrokeValue = nil
+    }
+
+    func undoMaskEdit() {
+        guard let previous = maskUndoStack.popLast() else { return }
+        maskRedoStack.append(skyMask)
+        skyMask = previous
+        endMaskStroke()
+        refreshMaskOverlay()
+        updateMaskHistoryState()
+        status = previous == nil ? "Mask edit undone; no sky mask." : "Mask edit undone."
+    }
+
+    func redoMaskEdit() {
+        guard let next = maskRedoStack.popLast() else { return }
+        maskUndoStack.append(skyMask)
+        skyMask = next
+        endMaskStroke()
+        refreshMaskOverlay()
+        updateMaskHistoryState()
+        status = next == nil ? "Mask edit redone; no sky mask." : "Mask edit redone."
+    }
+
+    func toggleMaskTool() {
+        maskTool = maskTool == .brushSky ? .eraseGround : .brushSky
+        status = "\(maskTool.displayName) selected."
+    }
+
+    func zoomIn() {
+        previewZoom = min(8.0, previewZoom * 1.25)
+    }
+
+    func zoomOut() {
+        previewZoom = max(1.0, previewZoom / 1.25)
+    }
+
+    func resetZoom() {
+        previewZoom = 1.0
     }
 
     func refreshMaskOverlay() {
@@ -472,19 +540,58 @@ final class AppModel: ObservableObject {
         )
     }
 
-    private func fittedPreviewRect(in viewSize: CGSize) -> CGRect {
-        guard previewPixelSize.width > 0, previewPixelSize.height > 0 else {
-            return CGRect(origin: .zero, size: viewSize)
+    private func replaceSkyMask(_ newMask: SkyMask?, undoable: Bool) {
+        if undoable, skyMask != newMask {
+            pushMaskUndoSnapshot()
         }
-        let scale = min(viewSize.width / previewPixelSize.width, viewSize.height / previewPixelSize.height)
-        let width = previewPixelSize.width * scale
-        let height = previewPixelSize.height * scale
-        return CGRect(
-            x: (viewSize.width - width) / 2,
-            y: (viewSize.height - height) / 2,
-            width: width,
-            height: height
+        skyMask = newMask
+        endMaskStroke()
+        refreshMaskOverlay()
+    }
+
+    private func pushMaskUndoSnapshot() {
+        maskUndoStack.append(skyMask)
+        if maskUndoStack.count > maxMaskHistoryDepth {
+            maskUndoStack.removeFirst(maskUndoStack.count - maxMaskHistoryDepth)
+        }
+        maskRedoStack.removeAll()
+        updateMaskHistoryState()
+    }
+
+    private func updateMaskHistoryState() {
+        canUndoMask = !maskUndoStack.isEmpty
+        canRedoMask = !maskRedoStack.isEmpty
+    }
+
+    private func maskPoint(forImageLocation location: CGPoint, imageViewSize: CGSize, mask: SkyMask) -> CGPoint? {
+        guard imageViewSize.width > 0, imageViewSize.height > 0 else { return nil }
+        guard location.x >= 0,
+              location.y >= 0,
+              location.x <= imageViewSize.width,
+              location.y <= imageViewSize.height else {
+            return nil
+        }
+
+        let nx = min(max(location.x / imageViewSize.width, 0), 1)
+        let ny = min(max(location.y / imageViewSize.height, 0), 1)
+        return CGPoint(
+            x: nx * CGFloat(mask.width - 1),
+            y: ny * CGFloat(mask.height - 1)
         )
+    }
+
+    private func paintMaskSegment(_ mask: inout SkyMask, from start: CGPoint, to end: CGPoint, value: UInt8) {
+        let radius = max(1, Int(brushSize.rounded()))
+        let distance = hypot(Double(end.x - start.x), Double(end.y - start.y))
+        let spacing = max(1.0, Double(radius) * 0.45)
+        let steps = max(1, Int(ceil(distance / spacing)))
+
+        for step in 0...steps {
+            let t = CGFloat(step) / CGFloat(steps)
+            let x = start.x + (end.x - start.x) * t
+            let y = start.y + (end.y - start.y) * t
+            mask.paint(centerX: Int(x.rounded()), centerY: Int(y.rounded()), radius: radius, value: value)
+        }
     }
 
     private func chooseMultipleFiles(title: String, completion: @escaping @MainActor ([URL]) -> Void) {

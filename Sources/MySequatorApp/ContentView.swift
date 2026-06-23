@@ -15,10 +15,35 @@ struct ContentView: View {
                         Button(action: model.chooseImages) {
                             Label("Add Images", systemImage: "plus")
                         }
-                        Button(action: model.generateAutoMask) {
-                            Label("Auto Mask", systemImage: "wand.and.stars")
+                        Button(action: model.undoMaskEdit) {
+                            Label("Undo Mask Edit", systemImage: "arrow.uturn.backward")
                         }
-                        .disabled(model.imagePaths.isEmpty || model.isMasking || model.sceneMode == .fullFrame)
+                        .disabled(!model.canUndoMask)
+                        .keyboardShortcut("z", modifiers: .command)
+                        Button(action: model.redoMaskEdit) {
+                            Label("Redo Mask Edit", systemImage: "arrow.uturn.forward")
+                        }
+                        .disabled(!model.canRedoMask)
+                        .keyboardShortcut("z", modifiers: [.command, .shift])
+                    }
+                    ToolbarItemGroup {
+                        Button(action: model.zoomOut) {
+                            Label("Zoom Out", systemImage: "minus.magnifyingglass")
+                        }
+                        .disabled(model.preview == nil || model.previewZoom <= 1.0)
+                        .keyboardShortcut("-", modifiers: .command)
+                        Button(action: model.resetZoom) {
+                            Label("Reset Zoom", systemImage: "magnifyingglass")
+                        }
+                        .disabled(model.preview == nil || model.previewZoom == 1.0)
+                        .keyboardShortcut("0", modifiers: .command)
+                        Button(action: model.zoomIn) {
+                            Label("Zoom In", systemImage: "plus.magnifyingglass")
+                        }
+                        .disabled(model.preview == nil || model.previewZoom >= 8.0)
+                        .keyboardShortcut("=", modifiers: .command)
+                    }
+                    ToolbarItemGroup {
                         Button(action: model.stack) {
                             Label("Stack", systemImage: "square.stack.3d.up")
                         }

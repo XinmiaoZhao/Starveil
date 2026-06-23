@@ -156,9 +156,13 @@ public func warpImageWithMask(_ image: FloatRGBImage, transform: ImageTransform,
             let y1 = min(image.height - 1, y0 + 1)
 
             if let mask {
-                let nearestX = min(max(Int(source.x.rounded()), 0), image.width - 1)
-                let nearestY = min(max(Int(source.y.rounded()), 0), image.height - 1)
-                if mask[nearestY * image.width + nearestX] == 0 {
+                let sampleIndices = [
+                    y0 * image.width + x0,
+                    y0 * image.width + x1,
+                    y1 * image.width + x0,
+                    y1 * image.width + x1
+                ]
+                if sampleIndices.contains(where: { mask[$0] == 0 }) {
                     continue
                 }
             }
