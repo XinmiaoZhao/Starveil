@@ -23,6 +23,18 @@ Sources:
 - https://sites.google.com/view/sequator/download
 - https://sites.google.com/view/sequator/qa
 
+## Collaboration and Repository Status
+
+- The shared GitHub repository is
+  `git@github.com:XinmiaoZhao/Starveil.git`.
+- Future development should start with `git pull --ff-only` to incorporate
+  remote changes before editing.
+- After implementation and verification, changes should normally be committed
+  and pushed directly unless tests fail, the work is incomplete, or review is
+  explicitly requested.
+- Local-only datasets, generated stacks, app backups, build outputs, and the
+  user-provided `SHIGUREStacker-source/` reference drop are ignored by Git.
+
 ## Completed in Milestone 0.1
 
 - Created Python package structure under `src/mysequator`.
@@ -262,14 +274,114 @@ Sources:
 - Memory use is now estimated and reported, but the sigma stacker still keeps
   frame data in memory instead of using chunked/streaming accumulation.
 
-## Next Milestones
+## Development Priorities After Milestone 0.7
 
-1. Add local mesh or lens-aware sky alignment for ultra-wide lenses and longer
-   sequences.
-2. Add chunked/streaming accumulation for lower memory use on long RAW
-   sequences.
-3. Extend star-trail support to separate sky/ground stacking if the desired
-   compositing behavior is defined.
-4. Add time-lapse batch mode.
-5. Build a notarized distributable `.app` or `.dmg` package once the workflow
-   stabilizes.
+Starveil has moved beyond the basic "can stack images" stage. The next phase
+should focus on making it a reliable linear landscape astrophotography stacking
+preprocessor for PixInsight, Lightroom, Photoshop, and similar workflows.
+
+The target workflows are:
+
+- Workflow A: Lightroom-rendered TIFF input.
+  RAW -> Lightroom light RAW rendering -> 16-bit TIFF -> Starveil sky/ground
+  stacking -> Lightroom or Photoshop final edit. This is broadly usable now.
+- Workflow B: strict linear RAW stacking.
+  RAW -> Starveil strict linear RAW stacking -> sky/ground composition ->
+  32-bit TIFF or FITS master -> PixInsight basic stretch -> Lightroom final
+  photographic edit. This is partially usable today and needs a stricter v0.8
+  contract.
+- Workflow C: professional layered output.
+  RAW -> Starveil strict linear stacking -> exported sky stack, ground stack,
+  hard mask, soft mask, edge mask, and blended preview -> dedicated sky/ground
+  processing -> manual blend. This is the highest-quality long-term workflow
+  and is not complete yet.
+
+### Milestone 0.8: Strict Linear Master and Professional Layers
+
+Goal: make Starveil produce trustworthy linear masters and professional layer
+outputs for PixInsight, Lightroom, and Photoshop workflows.
+
+Required work:
+
+- Add a strict linear master workflow, such as `--strict-linear` or
+  `--workflow linear-master`.
+- In strict linear mode, force-disable display-oriented processing: LibRaw auto
+  brightness, auto stretch, HDR stretch, light-pollution reduction, star
+  enhancement, gamma encoding, tone curves, JPEG/PNG-style rendering, and any
+  hidden photographic transform.
+- Allow only linear operations in strict mode: RAW black-level correction,
+  white balance, demosaic, dark/flat calibration, linear alignment/warping,
+  mean or sigma-clipped stacking, and mask-based sky/ground composition.
+- Emit an explicit log message that strict linear mode is enabled and no gamma,
+  tone curve, stretch, light-pollution reduction, or enhancement is applied.
+- Add professional layered output, with CLI options such as `--write-layers`,
+  `--output-sky`, `--output-ground`, `--output-hard-mask`,
+  `--output-soft-mask`, `--output-edge-mask`, and `--output-blended`.
+- Add GUI output modes for blended-only, professional layers, or both.
+- For `skyFreezeGround`, export a star-aligned sky stack, base-frame ground,
+  masks, and blended preview. For `skyAndGround`, export a star-aligned sky
+  stack and unshifted ground stack in original coordinates.
+- Export diagnostic masks: hard sky mask, soft/feathered alpha mask, and edge
+  transition mask. Keep all masks pixel-aligned with output layers; prefer
+  16-bit grayscale TIFF where feasible.
+- Preserve linear-output integrity with 32-bit float TIFF/FITS defaults in
+  strict mode, no gamma encoding, and clipping only when a selected output
+  format requires it.
+- Embed useful metadata where possible: Starveil version, workflow, scene mode,
+  RAW decode choices, stack mode, alignment model, mask guard/feather values,
+  `Linear=true`, `Gamma=none`, and `ToneCurve=none`.
+- Add XCTest and CLI-level coverage for strict-mode option enforcement,
+  layered sky/ground/mask output, soft-mask transition validity, edge-mask
+  locality, and 32-bit float TIFF/FITS linear value preservation.
+- Update user documentation for the three workflows and clearly state that
+  strict linear output is intended for later stretching, not immediate visual
+  appeal.
+
+### Milestone 0.9: Sky/Ground Boundary Quality
+
+Goal: reduce black edges, white halos, ghosting, blurred ridgelines,
+tree-branch artifacts, and ground contamination near the horizon.
+
+Required work:
+
+- Improve edge-aware alpha blending so strong foreground edges favor the ground
+  layer, smooth sky regions favor the sky layer, bottom-connected dark
+  structures remain ground, and isolated dark sky patches remain sky.
+- Add boundary diagnostics for hard mask, soft mask, edge transition zone,
+  refined foreground regions, sky-contamination warnings, and alignment
+  residual overlays when available.
+- Add sky-contamination checks near the boundary. Warn on unusually high
+  boundary variance, remaining bottom-connected foreground in the sky mask,
+  guard pixels that may be too small, or feather widths that look too wide or
+  too narrow.
+- Continue improving the manual correction workflow with zoomable preview,
+  original/mask/overlay/boundary-zone toggles, better brush/erase controls, and
+  clearer hard-vs-soft mask display.
+
+### Milestone 1.0: Long Sequences, Ultra-Wide Lenses, and Stability
+
+Goal: make Starveil reliable for longer RAW sequences, ultra-wide Milky Way
+lenses, and high-resolution modern cameras.
+
+Required work:
+
+- Add chunked or streaming accumulation: tile-based accumulation, streaming
+  mean, streaming variance, two-pass sigma clipping, and a user-facing memory
+  budget or memory-mode setting.
+- Improve wide-angle alignment beyond the current optional second-order
+  polynomial warp with local mesh, piecewise affine, grid-based, or later
+  lens-profile-aware alignment.
+- Constrain stronger sky warps to the sky mask; keep ground fixed or separately
+  accumulated depending on scene mode.
+- Add alignment diagnostics per frame: selected alignment model, matched star
+  count, inlier count, RMS residual, max residual, and fallback reason.
+- Add warnings for too few stars, too few inliers, wide-angle residual not
+  improving over conservative alignment, large edge residuals, and possible
+  local misalignment.
+- Add automatic fallback from wide-angle to conservative alignment when the
+  wide-angle fit is unreliable.
+- Defer time-lapse batch mode until strict linear output, professional layers,
+  boundary quality, alignment reliability, and memory stability are solid.
+
+Do not prioritize one-click photographic filters, heavy built-in color grading,
+or cosmetic effects before these workflow foundations are stable.

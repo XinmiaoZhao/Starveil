@@ -1,14 +1,22 @@
-# MySequator
+# Starveil
 
-MySequator is an independent macOS star-field stacking app inspired by the
-publicly documented workflow of Sequator. It does not use Sequator source code,
-assets, binaries, or reverse engineered behavior.
+Starveil is a macOS linear landscape astrophotography stacking preprocessor.
+Its near-term goal is to produce clean sky masters, ground layers, masks, and
+blended previews for PixInsight, Lightroom, Photoshop, and similar workflows.
 
-The main implementation is now a Swift + SwiftUI SwiftPM project. The previous
-Python/Tk implementation remains in the repository as a reference implementation
-and regression comparison target.
+This repository started as `MySequator`, and several internal SwiftPM product
+names still use that name. The user-facing macOS app is now **Starveil**.
+Starveil is an independent implementation inspired by publicly documented
+Sequator-style workflows. It does not use Sequator source code, assets,
+binaries, or reverse engineered behavior.
 
-The first milestone focuses on the core macOS workflow:
+## Current Status
+
+The active implementation is a Swift + SwiftUI SwiftPM project. The older
+Python/Tk implementation remains in the repository as a reference path and
+regression comparison target.
+
+Starveil currently supports:
 
 - import multiple star-field images
 - optional dark-frame subtraction and flat-frame correction
@@ -24,9 +32,56 @@ The first milestone focuses on the core macOS workflow:
 - keep output linear by default, with optional auto or HDR stretch
 - run from a SwiftUI desktop GUI or a command-line interface
 
-Advanced Sequator-style features such as high-quality automatic segmentation,
-XISF import, local mesh/lens-profile correction, and batch time-lapse output
-are tracked in `PROGRESS.md`.
+The next development phase is focused on professional linear workflows rather
+than one-click photographic filters. See `PROGRESS.md` for the detailed
+milestone history and roadmap.
+
+## Target Workflows
+
+Starveil is being built around three practical workflows:
+
+1. Lightroom-rendered TIFF input:
+   RAW -> Lightroom light RAW rendering -> 16-bit TIFF -> Starveil sky/ground
+   stacking -> Lightroom or Photoshop final edit.
+2. Strict linear RAW stacking:
+   RAW -> Starveil strict linear RAW master -> 32-bit TIFF or FITS ->
+   PixInsight stretch and gradient correction -> Lightroom final rendering.
+3. Professional layered output:
+   RAW -> Starveil sky stack, ground stack, hard mask, soft mask, edge mask,
+   and blended preview -> separate sky and ground processing -> manual blend
+   in Photoshop or similar tools.
+
+Workflow A is broadly usable today. Workflow B is partially usable through
+`--linear-master` and float TIFF/FITS output, but v0.8 will tighten the linear
+contract. Workflow C is planned for v0.8 as dedicated layered output.
+
+Strict linear output is not expected to look good before stretching. PixInsight
+or similar software should do the first stretch and gradient correction;
+Lightroom or Photoshop should come later for photographic rendering.
+
+## Repository
+
+The GitHub remote is:
+
+```bash
+git@github.com:XinmiaoZhao/Starveil.git
+```
+
+Before starting code changes, pull the remote branch:
+
+```bash
+git pull --ff-only
+```
+
+After changes are implemented and verification passes, commit and push directly
+unless there is a clear reason to stop for review:
+
+```bash
+git status
+git add <changed-files>
+git commit -m "Concise change summary"
+git push
+```
 
 ## Setup
 
