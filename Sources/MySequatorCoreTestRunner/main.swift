@@ -26,7 +26,6 @@ let tests: [TestCase] = [
     TestCase(name: "tiffRoundTripPreserves16BitRGB", run: tiffRoundTripPreserves16BitRGB),
     TestCase(name: "float32TIFFRoundTripPreservesLinearValues", run: float32TIFFRoundTripPreservesLinearValues),
     TestCase(name: "rawExtensionsAreAdvertisedButXISFIsDeferred", run: rawExtensionsAreAdvertisedButXISFIsDeferred),
-    TestCase(name: "swiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable", run: swiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable),
 ]
 
 var failures: [String] = []
@@ -189,41 +188,6 @@ func rawExtensionsAreAdvertisedButXISFIsDeferred() throws {
     try expect(rawExtensions.contains("dng"), "DNG should be advertised.")
     try expect(supportedExtensions.contains("cr3"), "CR3 should be advertised.")
     try expect(!supportedExtensions.contains("xisf"), "XISF should remain deferred.")
-}
-
-func swiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable() throws {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let python = root.appendingPathComponent(".conda/bin/python")
-    guard FileManager.default.isExecutableFile(atPath: python.path) else {
-        print("SKIP swiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable: .conda Python not found")
-        return
-    }
-
-    let temp = try temporaryDirectory()
-    let base = try makeRGBStarField(width: 40, height: 40)
-    var paths: [URL] = []
-    for index in 0..<4 {
-        let path = temp.appendingPathComponent("compare_\(index).tiff")
-        try saveImage(base, to: path)
-        paths.append(path)
-    }
-
-    let swiftResult = try stackImages(paths, options: StackOptions(mode: .mean))
-    let pythonOut = temp.appendingPathComponent("python-out.tiff")
-
-    let process = Process()
-    process.executableURL = python
-    process.currentDirectoryURL = root
-    process.arguments = ["-m", "mysequator", "--output", pythonOut.path, "--mode", "mean"] + paths.map(\.path)
-    try process.run()
-    process.waitUntilExit()
-    try expect(process.terminationStatus == 0, "Python comparison process failed with status \(process.terminationStatus).")
-
-    let pythonResult = try loadImage(pythonOut)
-    try expect(swiftResult.image.width == pythonResult.width, "Python width mismatch.")
-    try expect(swiftResult.image.height == pythonResult.height, "Python height mismatch.")
-    let maxDiff = zip(swiftResult.image.data, pythonResult.data).map { abs($0 - $1) }.max() ?? 0
-    try expect(maxDiff < 1.0 / 65535.0, "Swift/Python max diff too high: \(maxDiff)")
 }
 
 func stars(width: Int, height: Int, points: [(Int, Int)]) -> [Float] {

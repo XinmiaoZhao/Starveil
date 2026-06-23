@@ -32,8 +32,9 @@ Sources:
 - After implementation and verification, changes should normally be committed
   and pushed directly unless tests fail, the work is incomplete, or review is
   explicitly requested.
-- Local-only datasets, generated stacks, app backups, build outputs, and the
-  user-provided `SHIGUREStacker-source/` reference drop are ignored by Git.
+- Local-only datasets, generated stacks, app backups, build outputs, ignored
+  `archive/` folders, and the user-provided `SHIGUREStacker-source/` reference
+  drop are ignored by Git.
 
 ## Completed in Milestone 0.1
 
@@ -252,6 +253,21 @@ Sources:
   Session, Stack, Output Advanced, RAW, Sky Mask, and Post-processing. The left
   sidebar now stays focused on image selection, calibration counts, progress,
   and status.
+
+## Swift-Only Source Tree Cleanup
+
+- Moved the old Python/Tk implementation, Python tests, Python packaging file,
+  and old `MySequator.app` Python launcher into ignored local
+  `archive/python-reference-v0.7/`.
+- Removed Python reference tests from XCTest and the standalone Swift smoke
+  runner. The active verification path is now Swift-only:
+  - `swift test`
+  - `swift run MySequatorCoreTestRunner`
+- Simplified `environment.yml` to the conda-forge C libraries needed by Swift:
+  LibRaw and libtiff.
+- The GitHub repository now tracks the current Swift/SwiftUI implementation
+  rather than carrying an obsolete Python application beside it. The archived
+  Python code remains available locally when present and through Git history.
 
 ## Known Limitations
 

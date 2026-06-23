@@ -179,39 +179,6 @@ final class PipelineTests: XCTestCase {
         XCTAssertGreaterThan(sigmaSkyGround, sigmaFull)
     }
 
-    func testSwiftAndPythonPipelineAgreeOnSyntheticInputWhenPythonIsAvailable() throws {
-        let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-        let python = root.appendingPathComponent(".conda/bin/python")
-        guard FileManager.default.isExecutableFile(atPath: python.path) else {
-            throw XCTSkip("Local conda Python is not available.")
-        }
-
-        let temp = try temporaryDirectory()
-        let base = try makeRGBStarField(width: 40, height: 40)
-        var paths: [URL] = []
-        for index in 0..<4 {
-            let path = temp.appendingPathComponent("compare_\(index).tiff")
-            try saveImage(base, to: path)
-            paths.append(path)
-        }
-
-        let swiftResult = try stackImages(paths, options: StackOptions(mode: .mean))
-        let pythonOut = temp.appendingPathComponent("python-out.tiff")
-
-        let process = Process()
-        process.executableURL = python
-        process.currentDirectoryURL = root
-        process.arguments = ["-m", "mysequator", "--output", pythonOut.path, "--mode", "mean"] + paths.map(\.path)
-        try process.run()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0)
-
-        let pythonResult = try loadImage(pythonOut)
-        XCTAssertEqual(swiftResult.image.width, pythonResult.width)
-        XCTAssertEqual(swiftResult.image.height, pythonResult.height)
-        let maxDiff = zip(swiftResult.image.data, pythonResult.data).map { abs($0 - $1) }.max() ?? 0
-        XCTAssertLessThan(maxDiff, 1.0 / 65535.0)
-    }
 }
 
 private func makeRGBStarField(width: Int = 96, height: Int = 96) throws -> FloatRGBImage {

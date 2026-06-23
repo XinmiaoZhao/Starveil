@@ -12,6 +12,7 @@ temp/
 dist/
 build/
 AppBackups/
+archive/
 DerivedData/
 *.xcuserdata/
 *.xcuserstate

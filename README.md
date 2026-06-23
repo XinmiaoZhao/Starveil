@@ -13,8 +13,10 @@ binaries, or reverse engineered behavior.
 ## Current Status
 
 The active implementation is a Swift + SwiftUI SwiftPM project. The older
-Python/Tk implementation remains in the repository as a reference path and
-regression comparison target.
+Python/Tk implementation has been moved out of the tracked source tree so the
+public repository stays focused on the current Swift app. Local archives can be
+kept under ignored `archive/` directories; the old implementation also remains
+available through Git history.
 
 Starveil currently supports:
 
@@ -93,7 +95,8 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ```
 
 Create the local conda environment. Swift links against the conda-provided
-LibRaw and libtiff libraries for RAW and TIFF support.
+LibRaw and libtiff C libraries for RAW and TIFF support; the active app does
+not use Python packages.
 
 ```bash
 conda env create -p ./.conda -f environment.yml
@@ -214,41 +217,10 @@ swift run -c release mysequator-swift -- \
 ```bash
 swift test
 swift run MySequatorCoreTestRunner
-conda run -p ./.conda python -m pytest
 ```
 
 The standalone Swift test runner is a plain executable smoke test; the full
 Swift coverage, including sky/ground tests, lives in XCTest.
-
-## Python Reference Implementation
-
-The older Python GUI still works as a reference path:
-
-```bash
-conda run -p ./.conda python run_gui.py
-```
-
-This also works from the project root:
-
-```bash
-conda run -p ./.conda python -m mysequator.ui.app
-```
-
-You can also double-click `MySequator.app` after the conda environment has been
-created in `./.conda`.
-
-The Python CLI remains available:
-
-```bash
-conda run -p ./.conda python run_cli.py \
-  --output stacked.tiff \
-  --mode sigma \
-  --stretch none \
-  image_001.tif image_002.tif image_003.tif image_004.tif
-```
-
-From the project root, you can also use `python -m mysequator` in place of
-`python run_cli.py`.
 
 RAW extensions supported through LibRaw include common DSLR/mirrorless formats
 such as `.arw`, `.cr2`, `.cr3`, `.dng`, `.nef`, `.orf`, `.raf`, and `.rw2`.
